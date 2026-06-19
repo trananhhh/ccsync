@@ -1,0 +1,10 @@
+src/
+tests/
+node_modules/
+coverage/
+*.log
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+biome.json
+.gitignore

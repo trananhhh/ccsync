@@ -1,0 +1,60 @@
+{
+  "name": "ccsync",
+  "version": "0.1.0",
+  "description": "Sync Claude Code config, conversations, plugins and active project working trees between machines via Syncthing",
+  "type": "module",
+  "bin": {
+    "ccsync": "./dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "keywords": [
+    "claude-code",
+    "sync",
+    "syncthing",
+    "multi-machine",
+    "dotfiles",
+    "p2p"
+  ],
+  "author": "trananhhh",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/trananhhh/ccsync.git"
+  },
+  "bugs": {
+    "url": "https://github.com/trananhhh/ccsync/issues"
+  },
+  "homepage": "https://github.com/trananhhh/ccsync#readme",
+  "dependencies": {
+    "commander": "^14.0.0",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.9.0",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@types/node": "^22.0.0",
+    "@vitest/coverage-v8": "^2.0.0",
+    "tsup": "^8.5.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.0.0"
+  }
+}

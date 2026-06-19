@@ -230,6 +230,20 @@ Use `ccsync claim` to broadcast which machine is "primary" — a JSON file under
 | `ccsync claim` | Mark this machine active |
 | `ccsync release [--timeout <s>]` | Wait until 100% in-sync, release active flag |
 
+## Releasing (for maintainers)
+
+CI publishes to npm automatically when a `v*` tag is pushed. To cut a release:
+
+```bash
+# bump version in package.json AND create matching git tag
+npm version patch    # or minor / major
+git push origin main --follow-tags
+```
+
+The publish workflow validates that the git tag matches `package.json` version, runs typecheck + tests + build, then publishes with **npm provenance** signing. A GitHub release is created with auto-generated notes.
+
+Requires `NPM_TOKEN` repo secret (npmjs.com → Access Tokens → "Automation" type so it bypasses 2FA in CI).
+
 ## Roadmap
 
 - v0.4: launchd / systemd agent for idle-triggered sync; Claude Code exit hook; hotkey integration.

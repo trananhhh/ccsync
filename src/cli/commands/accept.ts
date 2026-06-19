@@ -3,6 +3,7 @@ import { apply } from "../../core/applier.js";
 import { readConfig, writeConfig } from "../../core/config-io.js";
 import { type Peer, PeerSchema } from "../../core/config-schema.js";
 import { SyncthingApi } from "../../core/syncthing-api.js";
+import { fetchPending } from "../../core/syncthing-pending.js";
 import { log } from "../../lib/log.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
 
@@ -11,21 +12,11 @@ export interface AcceptOptions {
 	all?: boolean;
 }
 
-interface PendingDevice {
-	time: string;
-	name: string;
-	address: string;
-}
-
-interface PendingResponse {
-	[deviceId: string]: PendingDevice;
-}
-
 export async function handleAccept(opts: AcceptOptions): Promise<void> {
 	const cfgPath = ccsyncConfigPath();
 	const cfg = await readConfig(cfgPath);
 	if (!cfg.syncthing) {
-		log.error("config.syncthing missing — run `ccsync init` first");
+		log.error("config.syncthing missing — run `ccsync setup` first");
 		process.exitCode = 1;
 		return;
 	}
@@ -39,7 +30,7 @@ export async function handleAccept(opts: AcceptOptions): Promise<void> {
 		return;
 	}
 
-	const pending = await loadPending(api);
+	const pending = await fetchPending(api);
 	const ids = Object.keys(pending);
 	if (ids.length === 0) {
 		log.success("No pending devices");
@@ -70,20 +61,9 @@ export async function handleAccept(opts: AcceptOptions): Promise<void> {
 	}
 }
 
-async function loadPending(api: SyncthingApi): Promise<PendingResponse> {
-	try {
-		return (await (api as unknown as { request: <T>(m: string, p: string) => Promise<T> }).request(
-			"GET",
-			"/rest/cluster/pending/devices",
-		)) as PendingResponse;
-	} catch {
-		return {};
-	}
-}
-
 async function acceptOne(
 	cfg: Awaited<ReturnType<typeof readConfig>>,
-	api: SyncthingApi,
+	_api: SyncthingApi,
 	deviceId: string,
 	label: string,
 ): Promise<void> {

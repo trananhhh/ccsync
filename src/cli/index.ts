@@ -15,6 +15,7 @@ import {
 } from "./commands/project.js";
 import { handlePush } from "./commands/push.js";
 import { handleRelease } from "./commands/release.js";
+import { handleSetup } from "./commands/setup.js";
 import { handleShare } from "./commands/share.js";
 import { handleStatus } from "./commands/status.js";
 import { handleSync } from "./commands/sync.js";
@@ -26,45 +27,16 @@ const program = new Command();
 program
 	.name("ccsync")
 	.description(
-		"Sync Claude Code config, conversations, plugins and active project working trees between machines via Syncthing",
+		"One-command sync of Claude Code config, conversations, and project working trees between machines.\n\nRun `ccsync` with no arguments — it figures out what to do.",
 	)
-	.version("0.3.0");
+	.version("0.4.0");
 
 program
-	.command("init")
-	.description("Install Syncthing, bootstrap config, start daemon")
-	.option("-f, --force", "overwrite existing config")
+	.command("setup [token]")
+	.description("Install Syncthing, bootstrap config, optionally join via invite token")
 	.option("--machine-name <name>", "machine label (defaults to hostname)")
-	.action(handleInit);
-
-program.command("id").description("Print this machine's Syncthing device ID").action(handleId);
-
-program
-	.command("share")
-	.description("Print an invite token for a new machine to join via `ccsync join`")
-	.option("--no-introducer", "do not mark this machine as introducer in the invite")
-	.action((opts: { noIntroducer?: boolean }) => handleShare(opts));
-
-program
-	.command("join <token>")
-	.description("Join a network using an invite token from `ccsync share`")
-	.action((token: string) => handleJoin({ token }));
-
-program
-	.command("accept [deviceId]")
-	.description("Accept a pending device (interactive if no ID given)")
-	.option("--all", "accept every pending device without prompting")
-	.action((deviceId: string | undefined, opts: { all?: boolean }) =>
-		handleAccept({ deviceId, all: opts.all }),
-	);
-
-program
-	.command("pair <deviceId>")
-	.description("Add a peer device by ID (low-level; prefer share/join)")
-	.option("-n, --name <name>", "label for the peer (defaults to short device id)")
-	.option("--introducer", "mark this peer as an introducer")
-	.action((deviceId: string, opts: { name?: string; introducer?: boolean }) =>
-		handlePair({ deviceId, name: opts.name, introducer: opts.introducer }),
+	.action((token: string | undefined, opts: { machineName?: string }) =>
+		handleSetup({ token, machineName: opts.machineName }),
 	);
 
 program
@@ -74,16 +46,67 @@ program
 	.action(handleStatus);
 
 program
-	.command("push")
-	.description("Apply local config to Syncthing and trigger rescan")
-	.action(handlePush);
+	.command("conflicts")
+	.description("Auto-merge shell history conflicts, prompt to resolve the rest")
+	.option("--auto", "auto-merge shell history conflicts, list the rest")
+	.action(handleConflicts);
 
 program
+	.command("release")
+	.description("Wait until 100% in-sync, then it's safe to switch machines")
+	.option("--timeout <seconds>", "max seconds to wait (default 300)", "300")
+	.action(handleRelease);
+
+const advanced = program.command("advanced").description("Advanced / low-level commands");
+
+advanced
+	.command("init")
+	.description("Bootstrap config (use `setup` instead)")
+	.option("-f, --force", "overwrite existing config")
+	.option("--machine-name <name>", "machine label (defaults to hostname)")
+	.action(handleInit);
+
+advanced.command("id").description("Print this machine's Syncthing device ID").action(handleId);
+
+advanced
+	.command("share")
+	.description("Print an invite token (use `setup` on the new machine to consume)")
+	.option("--no-introducer", "do not mark this machine as introducer in the invite")
+	.action((opts: { noIntroducer?: boolean }) => handleShare(opts));
+
+advanced
+	.command("join <token>")
+	.description("Pair using an invite token (use `setup <token>` instead)")
+	.action((token: string) => handleJoin({ token }));
+
+advanced
+	.command("accept [deviceId]")
+	.description("Accept a pending device (the main `ccsync` flow handles this for you)")
+	.option("--all", "accept every pending device without prompting")
+	.action((deviceId: string | undefined, opts: { all?: boolean }) =>
+		handleAccept({ deviceId, all: opts.all }),
+	);
+
+advanced
+	.command("pair <deviceId>")
+	.description("Add a peer device by ID")
+	.option("-n, --name <name>", "label for the peer (defaults to short device id)")
+	.option("--introducer", "mark this peer as an introducer")
+	.action((deviceId: string, opts: { name?: string; introducer?: boolean }) =>
+		handlePair({ deviceId, name: opts.name, introducer: opts.introducer }),
+	);
+
+advanced
+	.command("push")
+	.description("Apply local YAML config to Syncthing and trigger rescan")
+	.action(handlePush);
+
+advanced
 	.command("sync")
 	.description("Force an immediate rescan on every bucket (pull-like)")
 	.action(handleSync);
 
-program
+advanced
 	.command("toggle <bucket>")
 	.description("Enable or disable a bucket on this machine")
 	.option("--on", "force enable")
@@ -92,44 +115,25 @@ program
 		handleToggle({ bucket, on: opts.on, off: opts.off }),
 	);
 
-const project = program.command("project").description("Manage the active-projects bucket");
-project
-	.command("add <path>")
-	.description("Track a project working tree")
-	.action((p: string) => handleProjectAdd(p));
-project
-	.command("remove <path>")
-	.description("Stop tracking a project")
-	.action((p: string) => handleProjectRemove(p));
-project.command("list").description("List tracked projects").action(handleProjectList);
+const project = advanced.command("project").description("Manage the active-projects bucket");
+project.command("add <path>").action((p: string) => handleProjectAdd(p));
+project.command("remove <path>").action((p: string) => handleProjectRemove(p));
+project.command("list").action(handleProjectList);
 project
 	.command("detect")
-	.description("Suggest projects from ~/.claude/projects/")
 	.option("-y, --yes", "auto-add every suggestion")
 	.action((opts: { yes?: boolean }) => handleProjectDetect(opts));
 
-program
+advanced
 	.command("config")
 	.description("Open config in $EDITOR")
 	.option("--path", "print config path and exit")
 	.action(handleConfig);
 
-program
-	.command("conflicts")
-	.description("List and resolve Syncthing .sync-conflict-* files")
-	.option("--auto", "auto-merge shell history conflicts, list the rest")
-	.action(handleConflicts);
-
-program
+advanced
 	.command("claim")
 	.description("Mark this machine active (for shell-history coordination)")
 	.action(handleClaim);
-
-program
-	.command("release")
-	.description("Wait until 100% in-sync, then release active flag")
-	.option("--timeout <seconds>", "max seconds to wait (default 300)", "300")
-	.action(handleRelease);
 
 if (process.argv.length <= 2) {
 	runInteractive().catch((err) => {

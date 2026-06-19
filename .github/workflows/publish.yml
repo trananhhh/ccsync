@@ -4,6 +4,12 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Tag or commit to publish (defaults to current branch HEAD)"
+        required: false
+        type: string
 
 jobs:
   publish:

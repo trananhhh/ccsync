@@ -4,14 +4,18 @@ import { configExists, readConfig } from "../core/config-io.js";
 import { SyncthingApi } from "../core/syncthing-api.js";
 import { log } from "../lib/log.js";
 import { ccsyncConfigPath } from "../platform/paths.js";
+import { handleAccept } from "./commands/accept.js";
 import { handleClaim } from "./commands/claim.js";
 import { handleConfig } from "./commands/config.js";
 import { handleConflicts } from "./commands/conflicts.js";
 import { handleId } from "./commands/id.js";
 import { handleInit } from "./commands/init.js";
+import { handleJoin } from "./commands/join.js";
 import { handlePair } from "./commands/pair.js";
+import { handleProjectDetect, handleProjectList } from "./commands/project.js";
 import { handlePush } from "./commands/push.js";
 import { handleRelease } from "./commands/release.js";
+import { handleShare } from "./commands/share.js";
 import { handleStatus } from "./commands/status.js";
 import { handleSync } from "./commands/sync.js";
 import { handleToggle } from "./commands/toggle.js";
@@ -63,15 +67,38 @@ function items(): MenuItem[] {
 	return [
 		{ label: "Status", hint: "show peers + folder sync state", run: () => handleStatus({}) },
 		{ label: "Show my device ID", hint: "for pairing on the other machine", run: handleId },
+		{ label: "Share invite token", hint: "for a new machine to `ccsync join`", run: () => handleShare({}) },
 		{
-			label: "Pair a device",
-			hint: "add a peer by device ID",
+			label: "Join with invite token",
+			hint: "paste a token from `ccsync share`",
+			run: async () => {
+				const rl = createInterface({ input: process.stdin, output: process.stdout });
+				try {
+					const token = await ask(rl, "Invite token: ");
+					await handleJoin({ token });
+				} finally {
+					rl.close();
+				}
+			},
+		},
+		{
+			label: "Accept pending devices",
+			hint: "admit machines that ran `ccsync join`",
+			run: () => handleAccept({}),
+		},
+		{
+			label: "Pair by device ID (advanced)",
 			run: async () => {
 				const rl = createInterface({ input: process.stdin, output: process.stdout });
 				try {
 					const deviceId = await ask(rl, "Device ID: ");
 					const name = await ask(rl, "Label (optional): ");
-					await handlePair({ deviceId, name: name || undefined });
+					const introAns = (await ask(rl, "Mark as introducer? [y/N] ")).toLowerCase();
+					await handlePair({
+						deviceId,
+						name: name || undefined,
+						introducer: introAns === "y" || introAns === "yes",
+					});
 				} finally {
 					rl.close();
 				}
@@ -79,6 +106,15 @@ function items(): MenuItem[] {
 		},
 		{ label: "Push config to Syncthing", hint: "apply local YAML", run: handlePush },
 		{ label: "Force rescan now", hint: "trigger immediate sync", run: handleSync },
+		{
+			label: "Projects: list / detect",
+			hint: "manage active-projects bucket",
+			run: async () => {
+				await handleProjectList();
+				console.log("");
+				await handleProjectDetect({});
+			},
+		},
 		{
 			label: "Toggle a bucket",
 			hint: "enable / disable on this machine",

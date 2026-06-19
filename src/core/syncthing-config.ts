@@ -56,6 +56,7 @@ export function buildDevices(myDeviceId: string, machineName: string, peers: Pee
 		name: p.name,
 		addresses: p.addresses,
 		compression: "metadata",
+		introducer: p.introducer,
 	}));
 	return [self, ...remotes];
 }

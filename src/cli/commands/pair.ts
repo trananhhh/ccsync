@@ -6,6 +6,7 @@ import { ccsyncConfigPath } from "../../platform/paths.js";
 export interface PairOptions {
 	deviceId: string;
 	name?: string;
+	introducer?: boolean;
 }
 
 export async function handlePair(opts: PairOptions): Promise<void> {
@@ -16,6 +17,7 @@ export async function handlePair(opts: PairOptions): Promise<void> {
 		deviceId: opts.deviceId,
 		name: opts.name ?? short,
 		addresses: ["dynamic"],
+		introducer: opts.introducer ?? false,
 	});
 	if (cfg.peers.find((p) => p.deviceId === peer.deviceId)) {
 		log.warn(`Peer ${short} already paired`);

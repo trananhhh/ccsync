@@ -71,7 +71,7 @@ describe("bucketToFolders", () => {
 describe("buildDevices", () => {
 	it("places self first then peers", () => {
 		const out = buildDevices(ID_A, "macbook", [
-			{ deviceId: ID_B, name: "linux-desk", addresses: ["dynamic"] },
+			{ deviceId: ID_B, name: "linux-desk", addresses: ["dynamic"], introducer: false },
 		]);
 		expect(out[0].deviceID).toBe(ID_A);
 		expect(out[0].name).toBe("macbook");
@@ -84,7 +84,7 @@ describe("buildFolders", () => {
 		const out = buildFolders({
 			machineName: "test",
 			myDeviceId: ID_A,
-			peers: [{ deviceId: ID_B, name: "peer", addresses: ["dynamic"] }],
+			peers: [{ deviceId: ID_B, name: "peer", addresses: ["dynamic"], introducer: true }],
 			buckets: {
 				a: { enabled: true, paths: ["/a"], ignore: [], versioning: { type: "simple", keep: 5 } },
 				b: { enabled: true, paths: ["/b", "/c"], ignore: [], versioning: { type: "simple", keep: 5 } },

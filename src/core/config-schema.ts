@@ -18,6 +18,7 @@ export const PeerSchema = z.object({
 	deviceId: z.string().regex(/^[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}$/),
 	name: z.string().min(1),
 	addresses: z.array(z.string()).default(["dynamic"]),
+	introducer: z.boolean().default(false),
 });
 
 export type Peer = z.infer<typeof PeerSchema>;

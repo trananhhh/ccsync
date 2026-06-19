@@ -21,12 +21,14 @@ Git is the wrong tool for ~3 GB of mostly-binary state across tens of thousands 
 ## Install
 
 ```bash
-npm install -g ccsync
+npm install -g @trananhhh/ccsync
 # or
-pnpm add -g ccsync
+pnpm add -g @trananhhh/ccsync
 # or run ad-hoc
-npx ccsync init
+npx @trananhhh/ccsync init
 ```
+
+> The package is published under the `@trananhhh` scope because the bare `ccsync` name on npm is taken by an unrelated project. The installed binary is still called `ccsync`.
 
 Requires **Node.js 20+**. Syncthing is installed for you on first run (Homebrew on macOS, apt/dnf/pacman on Linux). Windows: install Syncthing manually then `ccsync init`.
 

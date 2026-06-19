@@ -1,5 +1,5 @@
 {
-  "name": "ccsync",
+  "name": "@trananhhh/ccsync",
   "version": "0.1.0",
   "description": "Sync Claude Code config, conversations, plugins and active project working trees between machines via Syncthing",
   "type": "module",

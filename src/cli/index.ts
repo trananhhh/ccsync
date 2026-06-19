@@ -2,12 +2,15 @@ import { Command } from "commander";
 import { handleClaim } from "./commands/claim.js";
 import { handleConfig } from "./commands/config.js";
 import { handleConflicts } from "./commands/conflicts.js";
+import { handleId } from "./commands/id.js";
 import { handleInit } from "./commands/init.js";
 import { handlePair } from "./commands/pair.js";
 import { handlePush } from "./commands/push.js";
 import { handleRelease } from "./commands/release.js";
 import { handleStatus } from "./commands/status.js";
+import { handleSync } from "./commands/sync.js";
 import { handleToggle } from "./commands/toggle.js";
+import { runInteractive } from "./interactive.js";
 
 const program = new Command();
 
@@ -16,7 +19,7 @@ program
 	.description(
 		"Sync Claude Code config, conversations, plugins and active project working trees between machines via Syncthing",
 	)
-	.version("0.1.0");
+	.version("0.2.0");
 
 program
 	.command("init")
@@ -24,6 +27,8 @@ program
 	.option("-f, --force", "overwrite existing config")
 	.option("--machine-name <name>", "machine label (defaults to hostname)")
 	.action(handleInit);
+
+program.command("id").description("Print this machine's Syncthing device ID").action(handleId);
 
 program
 	.command("pair <deviceId>")
@@ -41,6 +46,11 @@ program
 	.command("push")
 	.description("Apply local config to Syncthing and trigger rescan")
 	.action(handlePush);
+
+program
+	.command("sync")
+	.description("Force an immediate rescan on every bucket (pull-like)")
+	.action(handleSync);
 
 program
 	.command("toggle <bucket>")
@@ -74,7 +84,14 @@ program
 	.option("--timeout <seconds>", "max seconds to wait (default 300)", "300")
 	.action(handleRelease);
 
-program.parseAsync(process.argv).catch((err) => {
-	console.error(err);
-	process.exitCode = 1;
-});
+if (process.argv.length <= 2) {
+	runInteractive().catch((err) => {
+		console.error(err);
+		process.exitCode = 1;
+	});
+} else {
+	program.parseAsync(process.argv).catch((err) => {
+		console.error(err);
+		process.exitCode = 1;
+	});
+}

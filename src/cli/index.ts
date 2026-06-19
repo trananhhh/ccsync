@@ -3,6 +3,7 @@ import { handleAccept } from "./commands/accept.js";
 import { handleClaim } from "./commands/claim.js";
 import { handleConfig } from "./commands/config.js";
 import { handleConflicts } from "./commands/conflicts.js";
+import { handleDiagnose } from "./commands/diagnose.js";
 import { handleId } from "./commands/id.js";
 import { handleInit } from "./commands/init.js";
 import { handleJoin } from "./commands/join.js";
@@ -29,7 +30,7 @@ program
 	.description(
 		"One-command sync of Claude Code config, conversations, and project working trees between machines.\n\nRun `ccsync` with no arguments — it figures out what to do.",
 	)
-	.version("0.4.0");
+	.version("0.5.1");
 
 program
 	.command("setup [token]")
@@ -44,6 +45,11 @@ program
 	.description("Show sync status across all buckets and peers")
 	.option("-v, --verbose", "include per-folder details")
 	.action(handleStatus);
+
+program
+	.command("diagnose")
+	.description("Deep dump of peer connections + folder state for debugging")
+	.action(handleDiagnose);
 
 program
 	.command("conflicts")

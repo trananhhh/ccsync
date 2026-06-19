@@ -111,6 +111,13 @@ async function manualAcceptPrompt(cfg: Cfg, pending: PendingMap): Promise<void> 
 	log.success(`Accepted ${ids.length} device(s)`);
 }
 
+function humanBytes(b: number): string {
+	if (b < 1024) return `${b} B`;
+	if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} KB`;
+	if (b < 1024 * 1024 * 1024) return `${(b / 1024 / 1024).toFixed(1)} MB`;
+	return `${(b / 1024 / 1024 / 1024).toFixed(2)} GB`;
+}
+
 async function showDashboard(cfg: Cfg, api: SyncthingApi): Promise<void> {
 	const sys = await api.systemStatus();
 	const conns = await api.connections();
@@ -123,12 +130,27 @@ async function showDashboard(cfg: Cfg, api: SyncthingApi): Promise<void> {
 	});
 
 	let pendingFolders = 0;
+	let totalLocalFiles = 0;
+	let totalGlobalFiles = 0;
+	let totalLocalBytes = 0;
+	let totalNeedBytes = 0;
+	let missingPaths = 0;
+	const { promises: fsp } = await import("node:fs");
 	for (const f of folders) {
 		try {
 			const s = await api.folderStatus(f.id);
 			if (s.needFiles > 0 || s.needBytes > 0) pendingFolders++;
+			totalLocalFiles += s.localFiles;
+			totalGlobalFiles += s.globalFiles;
+			totalLocalBytes += s.localBytes;
+			totalNeedBytes += s.needBytes;
 		} catch {
 			// folder not yet known to Syncthing
+		}
+		try {
+			await fsp.stat(f.path);
+		} catch {
+			missingPaths++;
 		}
 	}
 	const peersOnline = cfg.peers.filter((p) => conns.connections[p.deviceId]?.connected).length;
@@ -137,9 +159,19 @@ async function showDashboard(cfg: Cfg, api: SyncthingApi): Promise<void> {
 	console.log(
 		`${pc.bold(pc.cyan(cfg.machineName))}  ${pc.dim("•")}  ` +
 			`${peersOnline}/${cfg.peers.length} peers online  ${pc.dim("•")}  ` +
-			`${enabledBuckets.length} buckets`,
+			`${enabledBuckets.length} buckets / ${folders.length} folders`,
 	);
-	if (pendingFolders === 0) {
+	console.log(
+		pc.dim(
+			`  ${totalLocalFiles}/${totalGlobalFiles} files  ${humanBytes(totalLocalBytes)} local  ${pendingFolders > 0 ? `${humanBytes(totalNeedBytes)} to fetch` : "in sync"}`,
+		),
+	);
+	if (missingPaths > 0) {
+		log.warn(`${missingPaths} folder path(s) don't exist on disk — run \`ccsync diagnose\``);
+	}
+	if (totalGlobalFiles === 0 && cfg.peers.length > 0) {
+		log.warn("All folders empty — possibly mis-configured paths. Run `ccsync diagnose`");
+	} else if (pendingFolders === 0) {
 		log.success("All in sync");
 	} else {
 		log.warn(`${pendingFolders} folder(s) pending — files still transferring`);

@@ -1,175 +1,175 @@
 import { createInterface } from "node:readline/promises";
 import pc from "picocolors";
-import { configExists, readConfig } from "../core/config-io.js";
+import { apply } from "../core/applier.js";
+import { configExists, readConfig, writeConfig } from "../core/config-io.js";
+import { type Peer, PeerSchema } from "../core/config-schema.js";
+import { findConflicts } from "../core/conflicts-scanner.js";
+import { encodeInvite } from "../core/invite-token.js";
 import { SyncthingApi } from "../core/syncthing-api.js";
+import { buildFolders } from "../core/syncthing-config.js";
+import { fetchPending, type PendingMap } from "../core/syncthing-pending.js";
 import { log } from "../lib/log.js";
 import { ccsyncConfigPath } from "../platform/paths.js";
-import { handleAccept } from "./commands/accept.js";
-import { handleClaim } from "./commands/claim.js";
-import { handleConfig } from "./commands/config.js";
 import { handleConflicts } from "./commands/conflicts.js";
-import { handleId } from "./commands/id.js";
-import { handleInit } from "./commands/init.js";
-import { handleJoin } from "./commands/join.js";
-import { handlePair } from "./commands/pair.js";
-import { handleProjectDetect, handleProjectList } from "./commands/project.js";
-import { handlePush } from "./commands/push.js";
 import { handleRelease } from "./commands/release.js";
-import { handleShare } from "./commands/share.js";
+import { handleSetup } from "./commands/setup.js";
 import { handleStatus } from "./commands/status.js";
-import { handleSync } from "./commands/sync.js";
-import { handleToggle } from "./commands/toggle.js";
 
-interface MenuItem {
-	label: string;
-	hint?: string;
-	run: () => Promise<void> | void;
-}
-
-async function printHeader(): Promise<void> {
-	const banner = pc.bold(pc.cyan("ccsync"));
-	console.log(`\n${banner} — Claude Code multi-machine sync`);
-	const cfgPath = ccsyncConfigPath();
-	if (!(await configExists(cfgPath))) {
-		log.warn("No config yet. Pick \"Initialise\" to set up this machine.");
-		return;
-	}
-	try {
-		const cfg = await readConfig(cfgPath);
-		const peers = cfg.peers.length;
-		const buckets = Object.values(cfg.buckets).filter((b) => b.enabled).length;
-		log.plain(
-			pc.dim(
-				`  machine=${cfg.machineName}  peers=${peers}  enabled_buckets=${buckets}`,
-			),
-		);
-		if (cfg.syncthing) {
-			const api = new SyncthingApi({
-				apiKey: cfg.syncthing.apiKey,
-				guiAddress: cfg.syncthing.guiAddress,
-			});
-			const reachable = await api.ping();
-			log.plain(
-				pc.dim(`  daemon=${reachable ? pc.green("up") : pc.red("down")} (${cfg.syncthing.guiAddress})`),
-			);
-		}
-	} catch {
-		log.warn("Config exists but failed to parse. Pick \"Edit config\" to inspect.");
-	}
-}
-
-async function ask(rl: ReturnType<typeof createInterface>, prompt: string): Promise<string> {
-	const answer = await rl.question(prompt);
-	return answer.trim();
-}
-
-function items(): MenuItem[] {
-	return [
-		{ label: "Status", hint: "show peers + folder sync state", run: () => handleStatus({}) },
-		{ label: "Show my device ID", hint: "for pairing on the other machine", run: handleId },
-		{ label: "Share invite token", hint: "for a new machine to `ccsync join`", run: () => handleShare({}) },
-		{
-			label: "Join with invite token",
-			hint: "paste a token from `ccsync share`",
-			run: async () => {
-				const rl = createInterface({ input: process.stdin, output: process.stdout });
-				try {
-					const token = await ask(rl, "Invite token: ");
-					await handleJoin({ token });
-				} finally {
-					rl.close();
-				}
-			},
-		},
-		{
-			label: "Accept pending devices",
-			hint: "admit machines that ran `ccsync join`",
-			run: () => handleAccept({}),
-		},
-		{
-			label: "Pair by device ID (advanced)",
-			run: async () => {
-				const rl = createInterface({ input: process.stdin, output: process.stdout });
-				try {
-					const deviceId = await ask(rl, "Device ID: ");
-					const name = await ask(rl, "Label (optional): ");
-					const introAns = (await ask(rl, "Mark as introducer? [y/N] ")).toLowerCase();
-					await handlePair({
-						deviceId,
-						name: name || undefined,
-						introducer: introAns === "y" || introAns === "yes",
-					});
-				} finally {
-					rl.close();
-				}
-			},
-		},
-		{ label: "Push config to Syncthing", hint: "apply local YAML", run: handlePush },
-		{ label: "Force rescan now", hint: "trigger immediate sync", run: handleSync },
-		{
-			label: "Projects: list / detect",
-			hint: "manage active-projects bucket",
-			run: async () => {
-				await handleProjectList();
-				console.log("");
-				await handleProjectDetect({});
-			},
-		},
-		{
-			label: "Toggle a bucket",
-			hint: "enable / disable on this machine",
-			run: async () => {
-				const rl = createInterface({ input: process.stdin, output: process.stdout });
-				try {
-					const cfg = await readConfig(ccsyncConfigPath());
-					const names = Object.keys(cfg.buckets);
-					console.log(pc.dim(`  available: ${names.join(", ")}`));
-					const bucket = await ask(rl, "Bucket: ");
-					await handleToggle({ bucket });
-				} finally {
-					rl.close();
-				}
-			},
-		},
-		{ label: "Conflicts", hint: "scan + interactively resolve", run: () => handleConflicts({}) },
-		{ label: "Claim this machine", run: handleClaim },
-		{
-			label: "Release & switch",
-			hint: "wait for 100% in-sync",
-			run: () => handleRelease({ timeout: "300" }),
-		},
-		{ label: "Edit config", run: () => handleConfig({}) },
-		{ label: "Initialise (re-run init)", run: () => handleInit({}) },
-		{ label: "Exit", run: () => {} },
-	];
-}
+type Cfg = Awaited<ReturnType<typeof readConfig>>;
 
 export async function runInteractive(): Promise<void> {
-	await printHeader();
-	const menu = items();
-	console.log("");
-	menu.forEach((m, i) => {
-		const num = pc.dim(String(i + 1).padStart(2, " "));
-		const hint = m.hint ? pc.dim(`  — ${m.hint}`) : "";
-		console.log(`  ${num}  ${m.label}${hint}`);
+	const cfgPath = ccsyncConfigPath();
+	if (!(await configExists(cfgPath))) {
+		log.info("First time here — let me set things up.");
+		log.plain("");
+		await handleSetup({});
+		return;
+	}
+
+	const cfg = await readConfig(cfgPath);
+	if (!cfg.syncthing) {
+		log.error("Config incomplete — run `ccsync advanced init --force`");
+		return;
+	}
+
+	const api = new SyncthingApi({
+		apiKey: cfg.syncthing.apiKey,
+		guiAddress: cfg.syncthing.guiAddress,
 	});
-	console.log("");
+
+	if (!(await api.ping())) {
+		log.error(`Syncthing daemon not reachable at ${cfg.syncthing.guiAddress}`);
+		log.plain(`Start it with: syncthing serve --home="${cfg.syncthing.homeDir}" &`);
+		return;
+	}
+
+	const pending = await fetchPending(api);
+	if (Object.keys(pending).length > 0) {
+		await acceptPending(cfg, pending);
+		return;
+	}
+
+	await showDashboard(cfg, api);
+	await shortcutPrompt(cfg, api);
+}
+
+async function acceptPending(cfg: Cfg, pending: PendingMap): Promise<void> {
+	log.plain("");
+	const ids = Object.keys(pending);
+	log.warn(`${ids.length} machine(s) want to join:`);
+	for (const id of ids) {
+		const m = pending[id];
+		log.plain(`  ${pc.bold(m.name || "(unnamed)")} ${pc.dim(`${id.slice(0, 14)}…`)}`);
+		log.plain(pc.dim(`    address=${m.address}  seen=${m.time}`));
+	}
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
-	let chosen: MenuItem | null = null;
+	let ans: string;
 	try {
-		const raw = await ask(rl, pc.cyan("? ") + "Choose [1-" + menu.length + "]: ");
-		const n = Number.parseInt(raw, 10);
-		if (Number.isNaN(n) || n < 1 || n > menu.length) {
-			log.warn("Invalid selection");
-			return;
+		ans = (await rl.question("\nAccept all? [Y/n] ")).trim().toLowerCase();
+	} finally {
+		rl.close();
+	}
+	if (ans === "n" || ans === "no") return;
+
+	for (const id of ids) {
+		const peer: Peer = PeerSchema.parse({
+			deviceId: id,
+			name: pending[id].name || id.slice(0, 7),
+			addresses: ["dynamic"],
+			introducer: false,
+		});
+		cfg.peers.push(peer);
+	}
+	await writeConfig(ccsyncConfigPath(), cfg);
+	log.step("Applying to Syncthing…");
+	await apply(cfg);
+	log.success(`Accepted ${ids.length} device(s)`);
+}
+
+async function showDashboard(cfg: Cfg, api: SyncthingApi): Promise<void> {
+	const sys = await api.systemStatus();
+	const conns = await api.connections();
+	const enabledBuckets = Object.entries(cfg.buckets).filter(([, b]) => b.enabled);
+	const folders = buildFolders({
+		machineName: cfg.machineName,
+		myDeviceId: sys.myID,
+		buckets: cfg.buckets,
+		peers: cfg.peers,
+	});
+
+	let pendingFolders = 0;
+	for (const f of folders) {
+		try {
+			const s = await api.folderStatus(f.id);
+			if (s.needFiles > 0 || s.needBytes > 0) pendingFolders++;
+		} catch {
+			// folder not yet known to Syncthing
 		}
-		chosen = menu[n - 1];
+	}
+	const peersOnline = cfg.peers.filter((p) => conns.connections[p.deviceId]?.connected).length;
+
+	console.log("");
+	console.log(
+		`${pc.bold(pc.cyan(cfg.machineName))}  ${pc.dim("•")}  ` +
+			`${peersOnline}/${cfg.peers.length} peers online  ${pc.dim("•")}  ` +
+			`${enabledBuckets.length} buckets`,
+	);
+	if (pendingFolders === 0) {
+		log.success("All in sync");
+	} else {
+		log.warn(`${pendingFolders} folder(s) pending — files still transferring`);
+	}
+
+	const conflicts = await findConflicts(cfg).catch(() => []);
+	if (conflicts.length > 0) {
+		log.warn(`${conflicts.length} conflict file(s) — press [c] to resolve`);
+	}
+}
+
+async function shortcutPrompt(cfg: Cfg, api: SyncthingApi): Promise<void> {
+	console.log("");
+	console.log(
+		pc.dim("  [s] status detail  [n] add a machine  [c] conflicts  [r] release & switch  [q] quit"),
+	);
+
+	const rl = createInterface({ input: process.stdin, output: process.stdout });
+	let ans: string;
+	try {
+		ans = (await rl.question("> ")).trim().toLowerCase();
 	} finally {
 		rl.close();
 	}
 
-	if (chosen.label === "Exit") return;
+	switch (ans) {
+		case "s":
+			await handleStatus({ verbose: true });
+			return;
+		case "n":
+			await printInvite(cfg, api);
+			return;
+		case "c":
+			await handleConflicts({});
+			return;
+		case "r":
+			await handleRelease({ timeout: "300" });
+			return;
+		default:
+			return;
+	}
+}
+
+async function printInvite(cfg: Cfg, api: SyncthingApi): Promise<void> {
+	const sys = await api.systemStatus();
+	const token = encodeInvite({
+		deviceId: sys.myID,
+		name: cfg.machineName,
+		introducer: true,
+	});
 	console.log("");
-	await chosen.run();
+	log.success("Run this on the new machine:");
+	console.log("");
+	console.log(`  ${pc.cyan(`npx @trananhhh/ccsync setup ${token}`)}`);
+	console.log("");
+	log.plain("After it joins, run `ccsync` here to accept.");
 }

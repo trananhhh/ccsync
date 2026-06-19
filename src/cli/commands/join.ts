@@ -2,7 +2,6 @@ import { apply } from "../../core/applier.js";
 import { readConfig, writeConfig } from "../../core/config-io.js";
 import { type Peer, PeerSchema } from "../../core/config-schema.js";
 import { decodeInvite } from "../../core/invite-token.js";
-import { SyncthingApi } from "../../core/syncthing-api.js";
 import { log } from "../../lib/log.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
 
@@ -34,18 +33,5 @@ export async function handleJoin(opts: JoinOptions): Promise<void> {
 
 	log.step("Applying config to local Syncthing…");
 	const res = await apply(cfg);
-	log.success(
-		`Applied: ${res.foldersConfigured} folders, ${res.devicesConfigured} devices`,
-	);
-
-	if (cfg.syncthing) {
-		const api = new SyncthingApi({
-			apiKey: cfg.syncthing.apiKey,
-			guiAddress: cfg.syncthing.guiAddress,
-		});
-		const sys = await api.systemStatus();
-		log.plain("");
-		log.plain("On the introducer machine, run:");
-		log.plain(`  ccsync accept ${sys.myID}`);
-	}
+	log.success(`Applied: ${res.foldersConfigured} folders, ${res.devicesConfigured} devices`);
 }

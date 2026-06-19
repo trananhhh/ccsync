@@ -1,9 +1,11 @@
 import { createInterface } from "node:readline/promises";
 import pc from "picocolors";
 import { apply } from "../core/applier.js";
+import { watchAndAutoAccept } from "../core/auto-accept.js";
 import { configExists, readConfig, writeConfig } from "../core/config-io.js";
 import { type Peer, PeerSchema } from "../core/config-schema.js";
 import { findConflicts } from "../core/conflicts-scanner.js";
+import { consumeOne, createInvite, listInvites } from "../core/invite-store.js";
 import { encodeInvite } from "../core/invite-token.js";
 import { SyncthingApi } from "../core/syncthing-api.js";
 import { buildFolders } from "../core/syncthing-config.js";
@@ -45,7 +47,7 @@ export async function runInteractive(): Promise<void> {
 
 	const pending = await fetchPending(api);
 	if (Object.keys(pending).length > 0) {
-		await acceptPending(cfg, pending);
+		await handlePending(cfg, pending);
 		return;
 	}
 
@@ -53,10 +55,32 @@ export async function runInteractive(): Promise<void> {
 	await shortcutPrompt(cfg, api);
 }
 
-async function acceptPending(cfg: Cfg, pending: PendingMap): Promise<void> {
+async function handlePending(cfg: Cfg, pending: PendingMap): Promise<void> {
+	const live = await listInvites();
+	if (live.length > 0) {
+		for (const id of Object.keys(pending)) {
+			const slot = await consumeOne();
+			if (!slot) break;
+			const peer: Peer = PeerSchema.parse({
+				deviceId: id,
+				name: pending[id].name || id.slice(0, 7),
+				addresses: ["dynamic"],
+				introducer: false,
+			});
+			cfg.peers.push(peer);
+		}
+		await writeConfig(ccsyncConfigPath(), cfg);
+		await apply(cfg);
+		log.success(`Auto-accepted ${Object.keys(pending).length} machine(s) via invite token`);
+		return;
+	}
+	await manualAcceptPrompt(cfg, pending);
+}
+
+async function manualAcceptPrompt(cfg: Cfg, pending: PendingMap): Promise<void> {
 	log.plain("");
 	const ids = Object.keys(pending);
-	log.warn(`${ids.length} machine(s) want to join:`);
+	log.warn(`${ids.length} machine(s) want to join (no fresh invite token):`);
 	for (const id of ids) {
 		const m = pending[id];
 		log.plain(`  ${pc.bold(m.name || "(unnamed)")} ${pc.dim(`${id.slice(0, 14)}…`)}`);
@@ -146,7 +170,7 @@ async function shortcutPrompt(cfg: Cfg, api: SyncthingApi): Promise<void> {
 			await handleStatus({ verbose: true });
 			return;
 		case "n":
-			await printInvite(cfg, api);
+			await printInviteAndWait(cfg, api);
 			return;
 		case "c":
 			await handleConflicts({});
@@ -159,17 +183,26 @@ async function shortcutPrompt(cfg: Cfg, api: SyncthingApi): Promise<void> {
 	}
 }
 
-async function printInvite(cfg: Cfg, api: SyncthingApi): Promise<void> {
+async function printInviteAndWait(cfg: Cfg, api: SyncthingApi): Promise<void> {
 	const sys = await api.systemStatus();
+	await createInvite();
 	const token = encodeInvite({
 		deviceId: sys.myID,
 		name: cfg.machineName,
 		introducer: true,
 	});
 	console.log("");
-	log.success("Run this on the new machine:");
+	log.success("Run this on the new machine (one-time, expires in 10 min):");
 	console.log("");
 	console.log(`  ${pc.cyan(`npx @trananhhh/ccsync setup ${token}`)}`);
 	console.log("");
-	log.plain("After it joins, run `ccsync` here to accept.");
+	log.plain(pc.dim("Keeping this open — I'll auto-accept the join (Ctrl+C to exit)."));
+	console.log("");
+
+	const accepted = await watchAndAutoAccept({ api });
+	if (accepted === 0) {
+		log.plain(pc.dim("\nNo machine joined within the window."));
+	} else {
+		log.success(`\nJoined: ${accepted} machine(s). Syncing.`);
+	}
 }

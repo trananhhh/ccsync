@@ -2,7 +2,11 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { decodeProjectDir, listClaudeProjectsUnderRoot } from "../../src/core/claude-projects.js";
+import {
+	decodeProjectDir,
+	detectClaudeConversationsForRoot,
+	listClaudeProjectsUnderRoot,
+} from "../../src/core/claude-projects.js";
 import { encodeClaudeProjectPath } from "../../src/core/root-profile.js";
 
 describe("decodeProjectDir", () => {
@@ -43,5 +47,34 @@ describe("listClaudeProjectsUnderRoot", () => {
 
 		expect(detected.map((p) => p.projectPath).sort()).toEqual([dashed, nestedDashed].sort());
 		expect(detected.every((p) => p.exists)).toBe(true);
+	});
+});
+
+describe("detectClaudeConversationsForRoot", () => {
+	it("keeps every Claude conversation and marks root matches for path remapping", async () => {
+		const tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-conversations-"));
+		const root = path.join(tmp, "Coding");
+		const claudeHome = path.join(tmp, ".claude");
+		const projectsDir = path.join(claudeHome, "projects");
+		const matched = path.join(root, "anby", "anby-platform");
+		const rawOutsideRoot = path.join(tmp, "Downloads", "scratch-project");
+
+		await fs.mkdir(matched, { recursive: true });
+		await fs.mkdir(projectsDir, { recursive: true });
+		await fs.mkdir(path.join(projectsDir, encodeClaudeProjectPath(matched)));
+		await fs.mkdir(path.join(projectsDir, encodeClaudeProjectPath(rawOutsideRoot)));
+
+		const detected = await detectClaudeConversationsForRoot(root, { claudeHome });
+
+		expect(detected.projects).toEqual([{ relativePath: "anby/anby-platform" }]);
+		expect(detected.conversations).toEqual([
+			{
+				encodedName: encodeClaudeProjectPath(matched),
+				relativePath: "anby/anby-platform",
+			},
+			{
+				encodedName: encodeClaudeProjectPath(rawOutsideRoot),
+			},
+		]);
 	});
 });

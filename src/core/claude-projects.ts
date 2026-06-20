@@ -10,9 +10,19 @@ export interface DetectedProject {
 	encodedDir: string;
 }
 
+export interface DetectedConversationDir {
+	encodedName: string;
+	encodedDir: string;
+}
+
 export interface ListClaudeProjectsUnderRootOptions {
 	claudeHome?: string;
 	maxDepth?: number;
+}
+
+export interface DetectedRootConversations {
+	projects: Array<{ relativePath: string }>;
+	conversations: Array<{ encodedName: string; relativePath?: string }>;
 }
 
 const DEFAULT_MAX_SCAN_DEPTH = 8;
@@ -49,6 +59,15 @@ export async function listClaudeProjects(): Promise<DetectedProject[]> {
 		out.push({ projectPath, exists, encodedDir: path.join(root, name) });
 	}
 	return out;
+}
+
+export async function listClaudeConversationDirs(
+	opts: Pick<ListClaudeProjectsUnderRootOptions, "claudeHome"> = {},
+): Promise<DetectedConversationDir[]> {
+	const root = path.join(opts.claudeHome ?? defaultClaudeHome(), "projects");
+	return (await listClaudeProjectDirNames(root))
+		.sort((a, b) => a.localeCompare(b))
+		.map((encodedName) => ({ encodedName, encodedDir: path.join(root, encodedName) }));
 }
 
 export async function listClaudeProjectsUnderRoot(
@@ -92,6 +111,33 @@ export async function listClaudeProjectsUnderRoot(
 
 	await visit(root, 0);
 	return out.sort((a, b) => a.projectPath.localeCompare(b.projectPath));
+}
+
+export async function detectClaudeConversationsForRoot(
+	rootPath: string,
+	opts: ListClaudeProjectsUnderRootOptions = {},
+): Promise<DetectedRootConversations> {
+	const root = path.resolve(rootPath);
+	const conversations = await listClaudeConversationDirs(opts);
+	const mappedProjects = await listClaudeProjectsUnderRoot(root, opts);
+	const relativeByEncoded = new Map(
+		mappedProjects.map((project) => [
+			path.basename(project.encodedDir),
+			path.relative(root, project.projectPath) || ".",
+		]),
+	);
+
+	return {
+		projects: mappedProjects.map((project) => ({
+			relativePath: path.relative(root, project.projectPath) || ".",
+		})),
+		conversations: conversations.map((conversation) => {
+			const relativePath = relativeByEncoded.get(conversation.encodedName);
+			return relativePath
+				? { encodedName: conversation.encodedName, relativePath }
+				: { encodedName: conversation.encodedName };
+		}),
+	};
 }
 
 async function listClaudeProjectDirNames(root: string): Promise<string[]> {

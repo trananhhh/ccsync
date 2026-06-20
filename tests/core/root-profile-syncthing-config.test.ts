@@ -21,12 +21,17 @@ describe("root profile Syncthing folders", () => {
 			canonicalRoot: "/Users/alice/work",
 			localRoot: "/Users/alice/work",
 			projects: [{ relativePath: "ccsync" }],
+			conversations: [
+				{ encodedName: "-Users-alice-work-ccsync", relativePath: "ccsync" },
+				{ encodedName: "-Users-alice-Downloads-scratch" },
+			],
 		});
 		const joinedProfile = createRootProfile({
 			id: hostProfile.id,
 			canonicalRoot: hostProfile.canonicalRoot,
 			localRoot: "/Users/bob/Coding",
 			projects: hostProfile.projects,
+			conversations: hostProfile.conversations,
 		});
 
 		const hostFolders = buildFolders({
@@ -53,5 +58,9 @@ describe("root profile Syncthing folders", () => {
 		expect(joinedFolders[1].path).toBe(
 			path.normalize(`${process.env.HOME}/.claude/projects/-Users-bob-Coding-ccsync`),
 		);
+		expect(hostFolders[2].path).toBe(
+			path.normalize(`${process.env.HOME}/.claude/projects/-Users-alice-Downloads-scratch`),
+		);
+		expect(joinedFolders[2].path).toBe(hostFolders[2].path);
 	});
 });

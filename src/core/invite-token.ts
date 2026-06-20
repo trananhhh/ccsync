@@ -10,6 +10,7 @@ export interface InviteRootProfile {
 	id: string;
 	canonicalRoot: string;
 	projects: Array<{ relativePath: string }>;
+	conversations?: Array<{ encodedName: string; relativePath?: string }>;
 }
 
 const PREFIX = "ccs1_";
@@ -63,6 +64,14 @@ function isInviteRootProfile(value: unknown): value is InviteRootProfile {
 		typeof profile.id === "string" &&
 		typeof profile.canonicalRoot === "string" &&
 		Array.isArray(profile.projects) &&
-		profile.projects.every((project) => typeof project?.relativePath === "string")
+		profile.projects.every((project) => typeof project?.relativePath === "string") &&
+		(profile.conversations === undefined ||
+			(Array.isArray(profile.conversations) &&
+				profile.conversations.every(
+					(conversation) =>
+						typeof conversation?.encodedName === "string" &&
+						(conversation.relativePath === undefined ||
+							typeof conversation.relativePath === "string"),
+				)))
 	);
 }

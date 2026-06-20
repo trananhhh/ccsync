@@ -6,7 +6,11 @@ import { withCodeRootBucket } from "../../core/buckets-default.js";
 import { readConfig, writeConfig } from "../../core/config-io.js";
 import { type Peer, PeerSchema, type RootProfile } from "../../core/config-schema.js";
 import { decodeInvite } from "../../core/invite-token.js";
-import { claudeConversationPath, createRootProfile } from "../../core/root-profile.js";
+import {
+	createRootProfile,
+	rootConversationPath,
+	rootConversations,
+} from "../../core/root-profile.js";
 import { log } from "../../lib/log.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
 
@@ -28,6 +32,7 @@ export async function handleJoin(opts: JoinOptions): Promise<void> {
 			canonicalRoot: inv.rootProfile.canonicalRoot,
 			localRoot,
 			projects: inv.rootProfile.projects,
+			conversations: inv.rootProfile.conversations,
 		});
 		cfg.buckets = withCodeRootBucket(cfg.buckets, localRoot);
 		await ensureConversationDirs(cfg.rootProfile);
@@ -72,7 +77,7 @@ async function promptLocalRoot(canonicalRoot: string): Promise<string> {
 }
 
 async function ensureConversationDirs(profile: RootProfile): Promise<void> {
-	for (const project of profile.projects) {
-		await fs.mkdir(claudeConversationPath(profile, project.relativePath), { recursive: true });
+	for (const conversation of rootConversations(profile)) {
+		await fs.mkdir(rootConversationPath(profile, conversation), { recursive: true });
 	}
 }

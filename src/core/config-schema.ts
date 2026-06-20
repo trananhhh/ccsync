@@ -20,12 +20,20 @@ export const RootProjectSchema = z.object({
 
 export type RootProject = z.infer<typeof RootProjectSchema>;
 
+export const RootConversationSchema = z.object({
+	encodedName: z.string().min(1),
+	relativePath: z.string().min(1).optional(),
+});
+
+export type RootConversation = z.infer<typeof RootConversationSchema>;
+
 export const RootProfileSchema = z.object({
 	id: z.string().min(1),
 	canonicalRoot: z.string().min(1),
 	localRoot: z.string().min(1),
 	conversationMode: z.enum(["direct", "symlink", "mirror"]).default("direct"),
 	projects: z.array(RootProjectSchema).default([]),
+	conversations: z.array(RootConversationSchema).default([]),
 });
 
 export type RootProfile = z.infer<typeof RootProfileSchema>;

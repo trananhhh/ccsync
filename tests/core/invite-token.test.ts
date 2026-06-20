@@ -23,6 +23,10 @@ describe("invite-token", () => {
 				id: "profile-a",
 				canonicalRoot: "/Users/alice/work",
 				projects: [{ relativePath: "ccsync" }],
+				conversations: [
+					{ encodedName: "-Users-alice-work-ccsync", relativePath: "ccsync" },
+					{ encodedName: "-Users-alice-Downloads-scratch" },
+				],
 			},
 		});
 		const dec = decodeInvite(enc);
@@ -31,6 +35,10 @@ describe("invite-token", () => {
 			id: "profile-a",
 			canonicalRoot: "/Users/alice/work",
 			projects: [{ relativePath: "ccsync" }],
+			conversations: [
+				{ encodedName: "-Users-alice-work-ccsync", relativePath: "ccsync" },
+				{ encodedName: "-Users-alice-Downloads-scratch" },
+			],
 		});
 	});
 

@@ -1,5 +1,5 @@
 import type { Bucket, Config } from "./config-schema.js";
-import { claudeConversationPath } from "./root-profile.js";
+import { rootConversationPath, rootConversations } from "./root-profile.js";
 import { writeStignore } from "./stignore-writer.js";
 import { SyncthingApi } from "./syncthing-api.js";
 import { buildDevices, buildFolders } from "./syncthing-config.js";
@@ -73,9 +73,9 @@ export function collectStignoreTargets(cfg: Config): StignoreTarget[] {
 	for (const [name, bucket] of Object.entries(cfg.buckets)) {
 		if (!bucket.enabled) continue;
 		if (cfg.rootProfile && name === "claude-conversations") {
-			for (const project of cfg.rootProfile.projects) {
+			for (const conversation of rootConversations(cfg.rootProfile)) {
 				targets.push({
-					folderPath: claudeConversationPath(cfg.rootProfile, project.relativePath),
+					folderPath: rootConversationPath(cfg.rootProfile, conversation),
 					bucket,
 				});
 			}

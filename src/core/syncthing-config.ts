@@ -1,5 +1,10 @@
 import type { Bucket, Peer, RootProfile } from "./config-schema.js";
-import { claudeConversationPath, conversationFolderId, rootFolderId } from "./root-profile.js";
+import {
+	rootConversationFolderId,
+	rootConversationPath,
+	rootConversations,
+	rootFolderId,
+} from "./root-profile.js";
 import type { SyncthingDevice, SyncthingFolder } from "./syncthing-api.js";
 
 export interface BuildFoldersInput {
@@ -67,12 +72,12 @@ function rootProfileToFolders(
 
 	const conversationBucket = buckets["claude-conversations"];
 	if (conversationBucket?.enabled) {
-		for (const project of profile.projects) {
+		for (const conversation of rootConversations(profile)) {
 			out.push(
 				folderFromBucket(
-					conversationFolderId(profile, project.relativePath),
-					`claude-conversations: ${project.relativePath}`,
-					claudeConversationPath(profile, project.relativePath),
+					rootConversationFolderId(profile, conversation),
+					`claude-conversations: ${conversation.relativePath ?? conversation.encodedName}`,
+					rootConversationPath(profile, conversation),
 					conversationBucket,
 					devices,
 				),

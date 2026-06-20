@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
 import { claudeHome } from "../platform/paths.js";
-import type { RootProfile, RootProject } from "./config-schema.js";
+import type { RootConversation, RootProfile, RootProject } from "./config-schema.js";
 
 export interface CreateRootProfileInput {
 	id?: string;
@@ -10,6 +10,7 @@ export interface CreateRootProfileInput {
 	localRoot: string;
 	conversationMode?: RootProfile["conversationMode"];
 	projects?: RootProject[];
+	conversations?: RootConversation[];
 }
 
 export function createRootProfile(input: CreateRootProfileInput): RootProfile {
@@ -18,6 +19,7 @@ export function createRootProfile(input: CreateRootProfileInput): RootProfile {
 	const projects = (input.projects ?? []).map((project) => ({
 		relativePath: normalizeRelativePath(project.relativePath),
 	}));
+	const conversations = normalizeConversations(input.conversations, projects, localRoot);
 
 	return {
 		id: input.id ?? `profile-${hashSegment(canonicalRoot)}`,
@@ -25,6 +27,7 @@ export function createRootProfile(input: CreateRootProfileInput): RootProfile {
 		localRoot,
 		conversationMode: input.conversationMode ?? "direct",
 		projects,
+		conversations,
 	};
 }
 
@@ -44,6 +47,26 @@ export function claudeConversationPath(
 	);
 }
 
+export function rawClaudeConversationPath(
+	encodedName: string,
+	claudeRoot: string = claudeHome(),
+): string {
+	return path.join(claudeRoot, "projects", normalizeEncodedConversationName(encodedName));
+}
+
+export function rootConversations(profile: RootProfile): RootConversation[] {
+	if (profile.conversations.length > 0) return profile.conversations;
+	return profile.projects.map((project) => ({
+		relativePath: project.relativePath,
+		encodedName: encodeClaudeProjectPath(localProjectPath(profile, project.relativePath)),
+	}));
+}
+
+export function rootConversationPath(profile: RootProfile, conversation: RootConversation): string {
+	if (conversation.relativePath) return claudeConversationPath(profile, conversation.relativePath);
+	return rawClaudeConversationPath(conversation.encodedName);
+}
+
 export function encodeClaudeProjectPath(projectPath: string): string {
 	return path.normalize(projectPath).replace(/[\\/]+/g, "-");
 }
@@ -56,13 +79,22 @@ export function conversationFolderId(profile: RootProfile, relativePath: string)
 	return `ccsync-conv-${safeSegment(profile.id)}-${hashSegment(normalizeRelativePath(relativePath))}`;
 }
 
+export function rootConversationFolderId(
+	profile: RootProfile,
+	conversation: RootConversation,
+): string {
+	if (conversation.relativePath) return conversationFolderId(profile, conversation.relativePath);
+	return `ccsync-conv-raw-${safeSegment(profile.id)}-${hashSegment(conversation.encodedName)}`;
+}
+
 export function inviteRootProfile(
 	profile: RootProfile,
-): Pick<RootProfile, "id" | "canonicalRoot" | "projects"> {
+): Pick<RootProfile, "id" | "canonicalRoot" | "projects" | "conversations"> {
 	return {
 		id: profile.id,
 		canonicalRoot: profile.canonicalRoot,
 		projects: profile.projects,
+		conversations: rootConversations(profile),
 	};
 }
 
@@ -116,6 +148,35 @@ function normalizeRelativePath(relativePath: string): string {
 		throw new Error(`Project path must be relative to the sync root: ${relativePath}`);
 	}
 	return normalized === "" ? "." : normalized;
+}
+
+function normalizeConversations(
+	conversations: RootConversation[] | undefined,
+	projects: RootProject[],
+	localRoot: string,
+): RootConversation[] {
+	const source =
+		conversations && conversations.length > 0
+			? conversations
+			: projects.map((project) => ({
+					relativePath: project.relativePath,
+					encodedName: encodeClaudeProjectPath(path.join(localRoot, project.relativePath)),
+				}));
+	return source.map((conversation) => ({
+		encodedName: normalizeEncodedConversationName(conversation.encodedName),
+		relativePath: conversation.relativePath
+			? normalizeRelativePath(conversation.relativePath)
+			: undefined,
+	}));
+}
+
+function normalizeEncodedConversationName(encodedName: string): string {
+	if (encodedName.includes("/") || encodedName.includes("\\")) {
+		throw new Error(
+			`Claude conversation folder name must not contain path separators: ${encodedName}`,
+		);
+	}
+	return encodedName;
 }
 
 function hashSegment(value: string): string {

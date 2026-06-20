@@ -4,16 +4,20 @@ import * as path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { apply } from "../../core/applier.js";
 import { DEFAULT_BUCKETS, withCodeRootBucket } from "../../core/buckets-default.js";
-import { listClaudeProjects, listClaudeProjectsUnderRoot } from "../../core/claude-projects.js";
+import {
+	detectClaudeConversationsForRoot,
+	listClaudeProjects,
+} from "../../core/claude-projects.js";
 import { configExists, readConfig, writeConfig } from "../../core/config-io.js";
 import { type Config, ConfigSchema, type RootProfile } from "../../core/config-schema.js";
 import { GLOBAL_IGNORE_PATTERNS } from "../../core/ignores-default.js";
 import { encodeInvite } from "../../core/invite-token.js";
 import {
-	claudeConversationPath,
 	createRootProfile,
 	inviteRootProfile,
 	isPathInsideRoot,
+	rootConversationPath,
+	rootConversations,
 	suggestRootFromProjects,
 } from "../../core/root-profile.js";
 import { SyncthingApi } from "../../core/syncthing-api.js";
@@ -112,14 +116,15 @@ async function configureRootProfile(): Promise<void> {
 	}
 
 	await fs.mkdir(root, { recursive: true });
-	const rootProjects = (await listClaudeProjectsUnderRoot(root))
-		.map((project) => project.projectPath)
-		.filter((projectPath) => isPathInsideRoot(root, projectPath))
-		.map((projectPath) => ({ relativePath: path.relative(root, projectPath) || "." }));
+	const rootConversations = await detectClaudeConversationsForRoot(root);
+	const rootProjects = rootConversations.projects.filter((project) =>
+		isPathInsideRoot(root, path.join(root, project.relativePath)),
+	);
 	cfg.rootProfile = createRootProfile({
 		canonicalRoot: root,
 		localRoot: root,
 		projects: rootProjects,
+		conversations: rootConversations.conversations,
 	});
 
 	cfg.buckets = withCodeRootBucket(cfg.buckets, root);
@@ -128,6 +133,7 @@ async function configureRootProfile(): Promise<void> {
 	log.success(`Root profile configured: ${root}`);
 	if (rootProjects.length > 0)
 		log.success(`Mapped ${rootProjects.length} Claude conversation project(s)`);
+	log.success(`Selected ${rootConversations.conversations.length} total Claude conversation(s)`);
 }
 
 async function applyConfig(): Promise<void> {
@@ -162,7 +168,7 @@ async function printShareInstructions(): Promise<void> {
 }
 
 async function ensureConversationDirs(profile: RootProfile): Promise<void> {
-	for (const project of profile.projects) {
-		await fs.mkdir(claudeConversationPath(profile, project.relativePath), { recursive: true });
+	for (const conversation of rootConversations(profile)) {
+		await fs.mkdir(rootConversationPath(profile, conversation), { recursive: true });
 	}
 }

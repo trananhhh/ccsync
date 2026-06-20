@@ -28,23 +28,20 @@ describe("SyncthingApi", () => {
 	});
 
 	it("throws on non-2xx with body in error", async () => {
-		globalThis.fetch = vi.fn(async () =>
-			new Response("nope", { status: 401 }),
-		) as typeof fetch;
+		globalThis.fetch = vi.fn(async () => new Response("nope", { status: 401 })) as typeof fetch;
 		const api = new SyncthingApi({ apiKey: "x", guiAddress: "127.0.0.1:8384" });
 		await expect(api.systemStatus()).rejects.toThrow(/401/);
 	});
 
 	it("ping returns true on success, false on failure", async () => {
-		globalThis.fetch = vi.fn(async () =>
-			new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
+		globalThis.fetch = vi.fn(
+			async () =>
+				new Response("{}", { status: 200, headers: { "content-type": "application/json" } }),
 		) as typeof fetch;
 		const api = new SyncthingApi({ apiKey: "x", guiAddress: "127.0.0.1:8384" });
 		expect(await api.ping()).toBe(true);
 
-		globalThis.fetch = vi.fn(async () =>
-			new Response("", { status: 500 }),
-		) as typeof fetch;
+		globalThis.fetch = vi.fn(async () => new Response("", { status: 500 })) as typeof fetch;
 		expect(await api.ping()).toBe(false);
 	});
 

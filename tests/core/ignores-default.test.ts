@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GLOBAL_IGNORE_PATTERNS, buildStignore } from "../../src/core/ignores-default.js";
+import { buildStignore, GLOBAL_IGNORE_PATTERNS } from "../../src/core/ignores-default.js";
 
 describe("ignores-default", () => {
 	it("includes critical git protection patterns", () => {

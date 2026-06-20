@@ -59,7 +59,9 @@ export async function handleProjectList(): Promise<void> {
 	const cfg = await readConfig(ccsyncConfigPath());
 	const bucket = cfg.buckets[BUCKET];
 	if (!bucket || bucket.paths.length === 0) {
-		log.plain("No projects tracked yet. Use `ccsync project add <path>` or `ccsync project detect`.");
+		log.plain(
+			"No projects tracked yet. Use `ccsync project add <path>` or `ccsync project detect`.",
+		);
 		return;
 	}
 	log.plain(`Bucket "${BUCKET}" (${bucket.enabled ? pc.green("enabled") : pc.red("disabled")}):`);
@@ -79,16 +81,16 @@ export async function handleProjectDetect(opts: { yes?: boolean }): Promise<void
 		return;
 	}
 	const projects = await listClaudeProjects();
-	const candidates = projects.filter(
-		(p) => p.exists && !bucket.paths.includes(p.projectPath),
-	);
+	const candidates = projects.filter((p) => p.exists && !bucket.paths.includes(p.projectPath));
 	if (candidates.length === 0) {
 		log.success("No new candidates from ~/.claude/projects/");
 		return;
 	}
 
 	log.plain(`Found ${candidates.length} Claude Code project(s) not yet tracked:`);
-	candidates.forEach((c, i) => log.plain(`  ${i + 1}. ${c.projectPath}`));
+	candidates.forEach((c, i) => {
+		log.plain(`  ${i + 1}. ${c.projectPath}`);
+	});
 	log.plain("");
 
 	let selected: typeof candidates;
@@ -97,9 +99,9 @@ export async function handleProjectDetect(opts: { yes?: boolean }): Promise<void
 	} else {
 		const rl = createInterface({ input: process.stdin, output: process.stdout });
 		try {
-			const ans = (
-				await rl.question("Add which? [a]ll / comma-separated numbers / [n]one: ")
-			).trim().toLowerCase();
+			const ans = (await rl.question("Add which? [a]ll / comma-separated numbers / [n]one: "))
+				.trim()
+				.toLowerCase();
 			if (ans === "n" || ans === "") {
 				log.plain("Nothing added");
 				return;

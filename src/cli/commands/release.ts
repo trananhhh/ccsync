@@ -26,6 +26,7 @@ export async function handleRelease(opts: ReleaseOptions): Promise<void> {
 		myDeviceId: sys.myID,
 		buckets: cfg.buckets,
 		peers: cfg.peers,
+		rootProfile: cfg.rootProfile,
 	});
 
 	const deadline = Date.now() + Number.parseInt(opts.timeout, 10) * 1000;

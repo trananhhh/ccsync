@@ -50,6 +50,12 @@ export const DEFAULT_BUCKETS: Record<string, Bucket> = {
 		ignore: [],
 		versioning: { type: "simple", keep: 10 },
 	},
+	"code-root": {
+		enabled: false,
+		paths: [],
+		ignore: [],
+		versioning: { type: "staggered", keep: 30 },
+	},
 	"active-projects": {
 		enabled: false,
 		paths: [],
@@ -57,3 +63,18 @@ export const DEFAULT_BUCKETS: Record<string, Bucket> = {
 		versioning: { type: "staggered", keep: 30 },
 	},
 };
+
+export function withCodeRootBucket(
+	buckets: Record<string, Bucket>,
+	localRoot: string,
+): Record<string, Bucket> {
+	const current = buckets["code-root"] ?? DEFAULT_BUCKETS["code-root"];
+	return {
+		...buckets,
+		"code-root": {
+			...current,
+			enabled: true,
+			paths: [localRoot],
+		},
+	};
+}

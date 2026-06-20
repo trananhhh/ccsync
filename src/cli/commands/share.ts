@@ -1,5 +1,6 @@
 import { readConfig } from "../../core/config-io.js";
 import { encodeInvite } from "../../core/invite-token.js";
+import { inviteRootProfile } from "../../core/root-profile.js";
 import { SyncthingApi } from "../../core/syncthing-api.js";
 import { log } from "../../lib/log.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
@@ -24,6 +25,7 @@ export async function handleShare(opts: ShareOptions): Promise<void> {
 		deviceId: sys.myID,
 		name: cfg.machineName,
 		introducer: !opts.noIntroducer,
+		rootProfile: cfg.rootProfile ? inviteRootProfile(cfg.rootProfile) : undefined,
 	});
 
 	log.success(`Share this code with the new machine:`);

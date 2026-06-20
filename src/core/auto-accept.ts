@@ -1,11 +1,11 @@
+import { log } from "../lib/log.js";
+import { ccsyncConfigPath } from "../platform/paths.js";
 import { apply } from "./applier.js";
 import { readConfig, writeConfig } from "./config-io.js";
 import { type Peer, PeerSchema } from "./config-schema.js";
 import { consumeOne, listInvites } from "./invite-store.js";
 import type { SyncthingApi } from "./syncthing-api.js";
 import { fetchPending } from "./syncthing-pending.js";
-import { log } from "../lib/log.js";
-import { ccsyncConfigPath } from "../platform/paths.js";
 
 export interface WatchOptions {
 	api: SyncthingApi;

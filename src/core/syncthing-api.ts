@@ -40,9 +40,7 @@ export class SyncthingApi {
 
 	constructor(opts: SyncthingApiOptions) {
 		this.apiKey = opts.apiKey;
-		const addr = opts.guiAddress.startsWith("http")
-			? opts.guiAddress
-			: `http://${opts.guiAddress}`;
+		const addr = opts.guiAddress.startsWith("http") ? opts.guiAddress : `http://${opts.guiAddress}`;
 		this.base = addr.replace(/\/$/, "");
 	}
 

@@ -1,12 +1,21 @@
+import * as fs from "node:fs/promises";
 import * as os from "node:os";
+import * as path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { apply } from "../../core/applier.js";
-import { DEFAULT_BUCKETS } from "../../core/buckets-default.js";
+import { DEFAULT_BUCKETS, withCodeRootBucket } from "../../core/buckets-default.js";
 import { listClaudeProjects } from "../../core/claude-projects.js";
 import { configExists, readConfig, writeConfig } from "../../core/config-io.js";
-import { type Config, ConfigSchema } from "../../core/config-schema.js";
+import { type Config, ConfigSchema, type RootProfile } from "../../core/config-schema.js";
 import { GLOBAL_IGNORE_PATTERNS } from "../../core/ignores-default.js";
 import { encodeInvite } from "../../core/invite-token.js";
+import {
+	claudeConversationPath,
+	createRootProfile,
+	inviteRootProfile,
+	isPathInsideRoot,
+	suggestRootFromProjects,
+} from "../../core/root-profile.js";
 import { SyncthingApi } from "../../core/syncthing-api.js";
 import {
 	generateHome,
@@ -39,7 +48,7 @@ export async function handleSetup(opts: SetupOptions): Promise<void> {
 		return;
 	}
 
-	await autoAddProjects();
+	await configureRootProfile();
 	await applyConfig();
 	await printShareInstructions();
 }
@@ -81,31 +90,43 @@ async function waitForDaemon(guiAddress: string): Promise<void> {
 	}
 }
 
-async function autoAddProjects(): Promise<void> {
+async function configureRootProfile(): Promise<void> {
 	const cfgPath = ccsyncConfigPath();
 	const cfg = await readConfig(cfgPath);
-	const bucket = cfg.buckets["active-projects"];
-	if (!bucket) return;
-	const projects = await listClaudeProjects();
-	const candidates = projects
-		.filter((p) => p.exists && !bucket.paths.includes(p.projectPath))
-		.map((p) => p.projectPath);
-	if (candidates.length === 0) return;
+	if (cfg.rootProfile) return;
 
+	const projects = await listClaudeProjects();
+	const existingProjects = projects.filter((p) => p.exists).map((p) => p.projectPath);
+	const suggestedRoot = suggestRootFromProjects(existingProjects, process.cwd());
 	log.plain("");
-	log.plain(`Detected ${candidates.length} Claude Code project(s):`);
-	for (const p of candidates) log.plain(`  • ${p}`);
+	log.plain(
+		"Choose one code root to sync. Projects under this root can keep Claude conversations mapped across machines.",
+	);
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
+	let root: string;
 	try {
-		const ans = (await rl.question("Sync them? [Y/n] ")).trim().toLowerCase();
-		if (ans === "n" || ans === "no") return;
+		const ans = (await rl.question(`Code root [${suggestedRoot}]: `)).trim();
+		root = path.resolve(ans || suggestedRoot);
 	} finally {
 		rl.close();
 	}
-	bucket.paths.push(...candidates);
-	bucket.enabled = true;
+
+	await fs.mkdir(root, { recursive: true });
+	const rootProjects = existingProjects
+		.filter((projectPath) => isPathInsideRoot(root, projectPath))
+		.map((projectPath) => ({ relativePath: path.relative(root, projectPath) || "." }));
+	cfg.rootProfile = createRootProfile({
+		canonicalRoot: root,
+		localRoot: root,
+		projects: rootProjects,
+	});
+
+	cfg.buckets = withCodeRootBucket(cfg.buckets, root);
+	await ensureConversationDirs(cfg.rootProfile);
 	await writeConfig(cfgPath, cfg);
-	log.success(`Added ${candidates.length} project(s)`);
+	log.success(`Root profile configured: ${root}`);
+	if (rootProjects.length > 0)
+		log.success(`Mapped ${rootProjects.length} Claude conversation project(s)`);
 }
 
 async function applyConfig(): Promise<void> {
@@ -129,6 +150,7 @@ async function printShareInstructions(): Promise<void> {
 		deviceId: sys.myID,
 		name: cfg.machineName,
 		introducer: true,
+		rootProfile: cfg.rootProfile ? inviteRootProfile(cfg.rootProfile) : undefined,
 	});
 
 	log.plain("");
@@ -136,4 +158,10 @@ async function printShareInstructions(): Promise<void> {
 	log.plain("");
 	log.plain("To add another machine, run this on it:");
 	log.plain(`  npx @trananhhh/ccsync setup ${token}`);
+}
+
+async function ensureConversationDirs(profile: RootProfile): Promise<void> {
+	for (const project of profile.projects) {
+		await fs.mkdir(claudeConversationPath(profile, project.relativePath), { recursive: true });
+	}
 }

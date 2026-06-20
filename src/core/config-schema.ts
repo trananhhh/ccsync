@@ -14,8 +14,28 @@ export const BucketSchema = z.object({
 
 export type Bucket = z.infer<typeof BucketSchema>;
 
+export const RootProjectSchema = z.object({
+	relativePath: z.string().min(1),
+});
+
+export type RootProject = z.infer<typeof RootProjectSchema>;
+
+export const RootProfileSchema = z.object({
+	id: z.string().min(1),
+	canonicalRoot: z.string().min(1),
+	localRoot: z.string().min(1),
+	conversationMode: z.enum(["direct", "symlink", "mirror"]).default("direct"),
+	projects: z.array(RootProjectSchema).default([]),
+});
+
+export type RootProfile = z.infer<typeof RootProfileSchema>;
+
 export const PeerSchema = z.object({
-	deviceId: z.string().regex(/^[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}$/),
+	deviceId: z
+		.string()
+		.regex(
+			/^[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}-[A-Z2-7]{7}$/,
+		),
 	name: z.string().min(1),
 	addresses: z.array(z.string()).default(["dynamic"]),
 	introducer: z.boolean().default(false),
@@ -35,6 +55,7 @@ export const ConfigSchema = z.object({
 	peers: z.array(PeerSchema).default([]),
 	buckets: z.record(z.string(), BucketSchema).default({}),
 	globalIgnore: z.array(z.string()).default([]),
+	rootProfile: RootProfileSchema.optional(),
 });
 
 export type Config = z.infer<typeof ConfigSchema>;

@@ -36,7 +36,7 @@ export async function handleDiagnose(): Promise<void> {
 	for (const p of cfg.peers) {
 		const c = conns.connections[p.deviceId];
 		const status = c?.connected ? pc.green("connected") : pc.red("disconnected");
-		console.log(`  ${p.name}  ${pc.dim(p.deviceId.slice(0, 14) + "…")}  ${status}`);
+		console.log(`  ${p.name}  ${pc.dim(`${p.deviceId.slice(0, 14)}…`)}  ${status}`);
 		if (c?.connected) {
 			console.log(
 				pc.dim(
@@ -54,6 +54,7 @@ export async function handleDiagnose(): Promise<void> {
 		myDeviceId: sys.myID,
 		buckets: cfg.buckets,
 		peers: cfg.peers,
+		rootProfile: cfg.rootProfile,
 	});
 
 	for (const f of planned) {

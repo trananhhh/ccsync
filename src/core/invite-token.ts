@@ -2,7 +2,14 @@ export interface Invite {
 	deviceId: string;
 	name: string;
 	introducer: boolean;
+	rootProfile?: InviteRootProfile;
 	version: 1;
+}
+
+export interface InviteRootProfile {
+	id: string;
+	canonicalRoot: string;
+	projects: Array<{ relativePath: string }>;
 }
 
 const PREFIX = "ccs1_";
@@ -41,9 +48,21 @@ export function decodeInvite(token: string): Invite {
 		typeof inv.deviceId !== "string" ||
 		typeof inv.name !== "string" ||
 		typeof inv.introducer !== "boolean" ||
+		(inv.rootProfile !== undefined && !isInviteRootProfile(inv.rootProfile)) ||
 		inv.version !== 1
 	) {
 		throw new Error("Invite token missing required fields");
 	}
 	return inv as Invite;
+}
+
+function isInviteRootProfile(value: unknown): value is InviteRootProfile {
+	if (!value || typeof value !== "object") return false;
+	const profile = value as Partial<InviteRootProfile>;
+	return (
+		typeof profile.id === "string" &&
+		typeof profile.canonicalRoot === "string" &&
+		Array.isArray(profile.projects) &&
+		profile.projects.every((project) => typeof project?.relativePath === "string")
+	);
 }

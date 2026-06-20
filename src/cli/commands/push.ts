@@ -1,5 +1,5 @@
-import { readConfig } from "../../core/config-io.js";
 import { apply } from "../../core/applier.js";
+import { readConfig } from "../../core/config-io.js";
 import { log } from "../../lib/log.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
 

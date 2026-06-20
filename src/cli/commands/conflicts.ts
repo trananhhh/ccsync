@@ -44,7 +44,9 @@ export async function handleConflicts(opts: ConflictsOptions): Promise<void> {
 			log.plain("");
 			log.plain(`Conflict: ${c.path}`);
 			log.plain(`Original: ${c.original}`);
-			const answer = (await rl.question("[k]eep local / [t]ake remote / [s]kip? ")).trim().toLowerCase();
+			const answer = (await rl.question("[k]eep local / [t]ake remote / [s]kip? "))
+				.trim()
+				.toLowerCase();
 			if (answer === "t") {
 				await fs.rename(c.path, c.original);
 				log.success(`Took remote for ${c.original}`);

@@ -42,6 +42,7 @@ export async function handleStatus(opts: StatusOptions): Promise<void> {
 		myDeviceId: sys.myID,
 		buckets: cfg.buckets,
 		peers: cfg.peers,
+		rootProfile: cfg.rootProfile,
 	});
 	let outOfSync = 0;
 	for (const folder of folders) {

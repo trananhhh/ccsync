@@ -10,7 +10,7 @@ export interface DetectedProject {
 
 export function decodeProjectDir(encoded: string): string {
 	if (!encoded.startsWith("-")) return encoded;
-	return "/" + encoded.slice(1).replaceAll("-", "/");
+	return `/${encoded.slice(1).replaceAll("-", "/")}`;
 }
 
 export async function listClaudeProjects(): Promise<DetectedProject[]> {

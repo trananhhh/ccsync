@@ -14,6 +14,26 @@ describe("invite-token", () => {
 		expect(dec.version).toBe(1);
 	});
 
+	it("round-trips root profile metadata", () => {
+		const enc = encodeInvite({
+			deviceId: ID,
+			name: "macbook",
+			introducer: true,
+			rootProfile: {
+				id: "profile-a",
+				canonicalRoot: "/Users/alice/work",
+				projects: [{ relativePath: "ccsync" }],
+			},
+		});
+		const dec = decodeInvite(enc);
+
+		expect(dec.rootProfile).toEqual({
+			id: "profile-a",
+			canonicalRoot: "/Users/alice/work",
+			projects: [{ relativePath: "ccsync" }],
+		});
+	});
+
 	it("uses URL-safe base64 (no +/=)", () => {
 		const enc = encodeInvite({ deviceId: ID, name: "x", introducer: false });
 		expect(enc).not.toMatch(/[+/=]/);
@@ -28,7 +48,11 @@ describe("invite-token", () => {
 	});
 
 	it("rejects missing required fields", () => {
-		const bad = "ccs1_" + Buffer.from(JSON.stringify({ deviceId: ID, version: 1 })).toString("base64").replace(/=+$/, "");
+		const bad =
+			"ccs1_" +
+			Buffer.from(JSON.stringify({ deviceId: ID, version: 1 }))
+				.toString("base64")
+				.replace(/=+$/, "");
 		expect(() => decodeInvite(bad)).toThrow(/missing/);
 	});
 });

@@ -4,9 +4,7 @@ import { decodeProjectDir } from "../../src/core/claude-projects.js";
 describe("decodeProjectDir", () => {
 	it("decodes leading-dash encoded paths", () => {
 		expect(decodeProjectDir("-Users-trananhhh")).toBe("/Users/trananhhh");
-		expect(decodeProjectDir("-Users-trananhhh-work-myapp")).toBe(
-			"/Users/trananhhh/work/myapp",
-		);
+		expect(decodeProjectDir("-Users-trananhhh-work-myapp")).toBe("/Users/trananhhh/work/myapp");
 	});
 
 	it("passes through paths without leading dash", () => {

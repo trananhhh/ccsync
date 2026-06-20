@@ -21,6 +21,7 @@ export async function handleSync(): Promise<void> {
 		myDeviceId: sys.myID,
 		buckets: cfg.buckets,
 		peers: cfg.peers,
+		rootProfile: cfg.rootProfile,
 	});
 	log.step(`Forcing rescan on ${folders.length} folder(s)…`);
 	let ok = 0;

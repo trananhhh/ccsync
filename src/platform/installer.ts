@@ -1,5 +1,5 @@
 import { run, which } from "../lib/exec.js";
-import { type OsInfo, detectOs } from "./paths.js";
+import { detectOs, type OsInfo } from "./paths.js";
 
 export interface InstallResult {
 	installed: boolean;

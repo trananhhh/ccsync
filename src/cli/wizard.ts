@@ -13,14 +13,28 @@ interface BucketChoice {
 }
 
 const BUCKET_LABELS: BucketChoice[] = [
-	{ key: "claude-config", label: "Claude config", hint: "agents, commands, hooks, rules, skills, settings, CLAUDE.md" },
+	{
+		key: "claude-config",
+		label: "Claude config",
+		hint: "agents, commands, hooks, rules, skills, settings, CLAUDE.md",
+	},
 	{ key: "claude-conversations", label: "Conversations", hint: "~/.claude/projects/" },
 	{ key: "claude-worktrees", label: "Worktrees", hint: "~/.claude/worktrees/" },
-	{ key: "claude-plugins", label: "Plugins", hint: "~/.claude/plugins/ (reproducible from marketplace)" },
-	{ key: "shell-history", label: "Shell history", hint: ".zsh_history, .bash_history, Claude history.jsonl" },
+	{
+		key: "claude-plugins",
+		label: "Plugins",
+		hint: "~/.claude/plugins/ (reproducible from marketplace)",
+	},
+	{
+		key: "shell-history",
+		label: "Shell history",
+		hint: ".zsh_history, .bash_history, Claude history.jsonl",
+	},
 ];
 
-export async function pickBuckets(buckets: Record<string, Bucket>): Promise<Record<string, Bucket>> {
+export async function pickBuckets(
+	buckets: Record<string, Bucket>,
+): Promise<Record<string, Bucket>> {
 	const next = { ...buckets };
 	const items = BUCKET_LABELS.filter((b) => next[b.key]);
 	if (items.length === 0) return next;
@@ -56,13 +70,13 @@ function render(buckets: Record<string, Bucket>, items: BucketChoice[]): void {
 	});
 }
 
-export async function pickProjects(
-	current: string[],
-): Promise<string[]> {
+export async function pickProjects(current: string[]): Promise<string[]> {
 	const detected = (await listClaudeProjects()).filter((p) => p.exists).map((p) => p.projectPath);
 	const candidates = Array.from(new Set([...current, ...detected]));
 	if (candidates.length === 0) {
-		console.log("\nNo Claude Code projects detected. You can add any later with `ccsync advanced project add <path>`.");
+		console.log(
+			"\nNo Claude Code projects detected. You can add any later with `ccsync advanced project add <path>`.",
+		);
 		return current;
 	}
 
@@ -73,9 +87,7 @@ export async function pickProjects(
 		while (true) {
 			render2(candidates, selected);
 			const ans = (
-				await rl.question(
-					"\nToggle numbers, `a /path` to add, `n` to skip all, Enter to confirm: ",
-				)
+				await rl.question("\nToggle numbers, `a /path` to add, `n` to skip all, Enter to confirm: ")
 			).trim();
 			if (ans === "") break;
 			if (ans === "n") {

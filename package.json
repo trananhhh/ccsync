@@ -1,6 +1,6 @@
 {
   "name": "@trananhhh/ccsync",
-  "version": "0.5.1",
+  "version": "0.5.2",
   "description": "Sync Claude Code config, conversations, plugins and active project working trees between machines via Syncthing",
   "type": "module",
   "bin": {
@@ -20,7 +20,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "lint": "biome check .",
+    "lint": "biome check src tests",
     "format": "biome format --write .",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "pnpm build"

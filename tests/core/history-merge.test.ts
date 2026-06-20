@@ -43,10 +43,7 @@ describe("history-merge", () => {
 		});
 
 		it("merges JSONL by timestamp field", () => {
-			const a = parse(
-				`{"timestamp": 100, "cmd": "a"}\n{"timestamp": 300, "cmd": "c"}\n`,
-				"jsonl",
-			);
+			const a = parse(`{"timestamp": 100, "cmd": "a"}\n{"timestamp": 300, "cmd": "c"}\n`, "jsonl");
 			const b = parse(`{"timestamp": 200, "cmd": "b"}\n`, "jsonl");
 			const merged = merge(a, b);
 			expect(merged.map((e) => JSON.parse(e.raw).cmd)).toEqual(["a", "b", "c"]);

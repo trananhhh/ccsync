@@ -1,7 +1,7 @@
 import * as os from "node:os";
 import { DEFAULT_BUCKETS } from "../../core/buckets-default.js";
-import { type Config, ConfigSchema } from "../../core/config-schema.js";
 import { configExists, writeConfig } from "../../core/config-io.js";
+import { type Config, ConfigSchema } from "../../core/config-schema.js";
 import { GLOBAL_IGNORE_PATTERNS } from "../../core/ignores-default.js";
 import {
 	generateHome,

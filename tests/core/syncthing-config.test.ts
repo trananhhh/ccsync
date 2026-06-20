@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { Bucket } from "../../src/core/config-schema.js";
-import {
-	bucketToFolders,
-	buildDevices,
-	buildFolders,
-} from "../../src/core/syncthing-config.js";
+import { bucketToFolders, buildDevices, buildFolders } from "../../src/core/syncthing-config.js";
 
 const ID_A = "AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA";
 const ID_B = "BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB";
@@ -87,7 +83,12 @@ describe("buildFolders", () => {
 			peers: [{ deviceId: ID_B, name: "peer", addresses: ["dynamic"], introducer: true }],
 			buckets: {
 				a: { enabled: true, paths: ["/a"], ignore: [], versioning: { type: "simple", keep: 5 } },
-				b: { enabled: true, paths: ["/b", "/c"], ignore: [], versioning: { type: "simple", keep: 5 } },
+				b: {
+					enabled: true,
+					paths: ["/b", "/c"],
+					ignore: [],
+					versioning: { type: "simple", keep: 5 },
+				},
 			},
 		});
 		expect(out).toHaveLength(3);

@@ -2,8 +2,8 @@ import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { findConflicts } from "../../src/core/conflicts-scanner.js";
 import type { Config } from "../../src/core/config-schema.js";
+import { findConflicts } from "../../src/core/conflicts-scanner.js";
 
 describe("findConflicts", () => {
 	let tmp: string;

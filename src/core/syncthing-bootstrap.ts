@@ -34,12 +34,7 @@ function matchOne(text: string, re: RegExp): string {
 export async function startDaemon(homeDir: string): Promise<number> {
 	const syncthing = await which("syncthing");
 	if (!syncthing) throw new Error("syncthing binary not found on PATH");
-	return spawnDetached(syncthing, [
-		"serve",
-		`--home=${homeDir}`,
-		"--no-browser",
-		"--no-restart",
-	]);
+	return spawnDetached(syncthing, ["serve", `--home=${homeDir}`, "--no-browser", "--no-restart"]);
 }
 
 export async function isDaemonRunning(guiAddress: string): Promise<boolean> {

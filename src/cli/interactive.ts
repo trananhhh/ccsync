@@ -7,6 +7,7 @@ import { type Peer, PeerSchema } from "../core/config-schema.js";
 import { findConflicts } from "../core/conflicts-scanner.js";
 import { consumeOne, createInvite, listInvites } from "../core/invite-store.js";
 import { encodeInvite } from "../core/invite-token.js";
+import { inviteRootProfile } from "../core/root-profile.js";
 import { SyncthingApi } from "../core/syncthing-api.js";
 import { buildFolders } from "../core/syncthing-config.js";
 import { fetchPending, type PendingMap } from "../core/syncthing-pending.js";
@@ -127,6 +128,7 @@ async function showDashboard(cfg: Cfg, api: SyncthingApi): Promise<void> {
 		myDeviceId: sys.myID,
 		buckets: cfg.buckets,
 		peers: cfg.peers,
+		rootProfile: cfg.rootProfile,
 	});
 
 	let pendingFolders = 0;
@@ -222,6 +224,7 @@ async function printInviteAndWait(cfg: Cfg, api: SyncthingApi): Promise<void> {
 		deviceId: sys.myID,
 		name: cfg.machineName,
 		introducer: true,
+		rootProfile: cfg.rootProfile ? inviteRootProfile(cfg.rootProfile) : undefined,
 	});
 	console.log("");
 	log.success("Run this on the new machine (one-time, expires in 10 min):");

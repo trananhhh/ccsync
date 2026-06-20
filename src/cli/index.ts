@@ -22,6 +22,7 @@ import { handleStatus } from "./commands/status.js";
 import { handleSync } from "./commands/sync.js";
 import { handleToggle } from "./commands/toggle.js";
 import { runInteractive } from "./interactive.js";
+import { CLI_VERSION } from "./version.js";
 
 const program = new Command();
 
@@ -30,7 +31,7 @@ program
 	.description(
 		"One-command sync of Claude Code config, conversations, and project working trees between machines.\n\nRun `ccsync` with no arguments — it figures out what to do.",
 	)
-	.version("0.5.1");
+	.version(CLI_VERSION);
 
 program
 	.command("setup [token]")

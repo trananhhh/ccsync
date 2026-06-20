@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { createInterface } from "node:readline/promises";
 import { apply } from "../../core/applier.js";
 import { DEFAULT_BUCKETS, withCodeRootBucket } from "../../core/buckets-default.js";
-import { listClaudeProjects } from "../../core/claude-projects.js";
+import { listClaudeProjects, listClaudeProjectsUnderRoot } from "../../core/claude-projects.js";
 import { configExists, readConfig, writeConfig } from "../../core/config-io.js";
 import { type Config, ConfigSchema, type RootProfile } from "../../core/config-schema.js";
 import { GLOBAL_IGNORE_PATTERNS } from "../../core/ignores-default.js";
@@ -112,7 +112,8 @@ async function configureRootProfile(): Promise<void> {
 	}
 
 	await fs.mkdir(root, { recursive: true });
-	const rootProjects = existingProjects
+	const rootProjects = (await listClaudeProjectsUnderRoot(root))
+		.map((project) => project.projectPath)
 		.filter((projectPath) => isPathInsideRoot(root, projectPath))
 		.map((projectPath) => ({ relativePath: path.relative(root, projectPath) || "." }));
 	cfg.rootProfile = createRootProfile({

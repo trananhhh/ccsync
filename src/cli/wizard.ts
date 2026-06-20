@@ -40,13 +40,14 @@ export async function pickBuckets(
 	const items = BUCKET_LABELS.filter((b) => next[b.key]);
 	if (items.length === 0) return next;
 
-	console.log("\nWhat to sync? (press Enter to keep current, or list numbers to toggle)");
+	console.log("\nWhat to sync?");
+	console.log(pc.dim("Type numbers separated by spaces to toggle, then press Enter to confirm."));
 	render(next, items);
 
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
 	try {
 		while (true) {
-			const ans = (await rl.question("> ")).trim();
+			const ans = (await rl.question("Toggle numbers or Enter to confirm: ")).trim();
 			if (ans === "") return next;
 			const nums = ans.split(/[\s,]+/).map((s) => Number.parseInt(s, 10) - 1);
 			for (const n of nums) {
@@ -146,6 +147,11 @@ export async function pickCodeFolders(
 	const selected = new Set(items.filter((item) => item !== rootOption));
 	console.log("\nCode folders under root to sync (uncommitted edits included):");
 	console.log(pc.dim(`Root: ${root}`));
+	console.log(
+		pc.dim(
+			"Type numbers separated by spaces to toggle. Select `.` only if you want the whole root.",
+		),
+	);
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
 	try {
 		while (true) {

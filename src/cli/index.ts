@@ -31,14 +31,20 @@ program
 	.description(
 		"One-command sync of Claude Code config, conversations, and project working trees between machines.\n\nRun `ccsync` with no arguments — it figures out what to do.",
 	)
-	.version(CLI_VERSION);
+	.version(CLI_VERSION)
+	.option("--fresh", "reset local ccsync config and run setup again")
+	.action((opts: { fresh?: boolean }) => {
+		if (opts.fresh) return handleSetup({ fresh: true });
+		return runInteractive();
+	});
 
 program
 	.command("setup [token]")
 	.description("Install Syncthing, bootstrap config, optionally join via invite token")
 	.option("--machine-name <name>", "machine label (defaults to hostname)")
-	.action((token: string | undefined, opts: { machineName?: string }) =>
-		handleSetup({ token, machineName: opts.machineName }),
+	.option("--fresh", "reset local ccsync config before setup")
+	.action((token: string | undefined, opts: { machineName?: string; fresh?: boolean }) =>
+		handleSetup({ token, machineName: opts.machineName, fresh: opts.fresh }),
 	);
 
 program
@@ -142,14 +148,7 @@ advanced
 	.description("Mark this machine active (for shell-history coordination)")
 	.action(handleClaim);
 
-if (process.argv.length <= 2) {
-	runInteractive().catch((err) => {
-		console.error(err);
-		process.exitCode = 1;
-	});
-} else {
-	program.parseAsync(process.argv).catch((err) => {
-		console.error(err);
-		process.exitCode = 1;
-	});
-}
+program.parseAsync(process.argv).catch((err) => {
+	console.error(err);
+	process.exitCode = 1;
+});

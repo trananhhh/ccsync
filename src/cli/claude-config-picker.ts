@@ -12,6 +12,7 @@ export async function pickClaudeConfigPaths(bucket: Bucket): Promise<Bucket> {
 
 	const selected = new Set(bucket.paths);
 	console.log("\nClaude Code config items to sync:");
+	console.log(pc.dim("Type numbers separated by spaces to toggle, then press Enter to confirm."));
 	const rl = createInterface({ input: process.stdin, output: process.stdout });
 	try {
 		while (true) {

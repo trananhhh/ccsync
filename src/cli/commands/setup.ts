@@ -11,6 +11,7 @@ import {
 import { findCodeFolderCandidates } from "../../core/code-folders.js";
 import { configExists, readConfig, writeConfig } from "../../core/config-io.js";
 import { type Config, ConfigSchema, type RootProfile } from "../../core/config-schema.js";
+import { resetCcsyncState } from "../../core/fresh-reset.js";
 import { GLOBAL_IGNORE_PATTERNS } from "../../core/ignores-default.js";
 import { encodeInvite } from "../../core/invite-token.js";
 import {
@@ -38,10 +39,15 @@ import { handleJoin } from "./join.js";
 export interface SetupOptions {
 	token?: string;
 	machineName?: string;
+	fresh?: boolean;
 }
 
 export async function handleSetup(opts: SetupOptions): Promise<void> {
 	const cfgPath = ccsyncConfigPath();
+	if (opts.fresh) {
+		log.step("Resetting local ccsync config…");
+		await resetCcsyncState();
+	}
 	if (!(await configExists(cfgPath))) {
 		await bootstrap(opts.machineName);
 	}

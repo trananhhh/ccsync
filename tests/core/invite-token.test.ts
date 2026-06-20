@@ -22,6 +22,7 @@ describe("invite-token", () => {
 			rootProfile: {
 				id: "profile-a",
 				canonicalRoot: "/Users/alice/work",
+				codeFolders: [{ relativePath: "ccsync" }],
 				projects: [{ relativePath: "ccsync" }],
 				conversations: [
 					{ encodedName: "-Users-alice-work-ccsync", relativePath: "ccsync" },
@@ -34,6 +35,7 @@ describe("invite-token", () => {
 		expect(dec.rootProfile).toEqual({
 			id: "profile-a",
 			canonicalRoot: "/Users/alice/work",
+			codeFolders: [{ relativePath: "ccsync" }],
 			projects: [{ relativePath: "ccsync" }],
 			conversations: [
 				{ encodedName: "-Users-alice-work-ccsync", relativePath: "ccsync" },

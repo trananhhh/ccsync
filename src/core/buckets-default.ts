@@ -67,14 +67,16 @@ export const DEFAULT_BUCKETS: Record<string, Bucket> = {
 export function withCodeRootBucket(
 	buckets: Record<string, Bucket>,
 	localRoot: string,
+	relativePaths: string[] = ["."],
 ): Record<string, Bucket> {
 	const current = buckets["code-root"] ?? DEFAULT_BUCKETS["code-root"];
+	const paths = relativePaths.map((relativePath) => path.join(localRoot, relativePath));
 	return {
 		...buckets,
 		"code-root": {
 			...current,
-			enabled: true,
-			paths: [localRoot],
+			enabled: paths.length > 0,
+			paths,
 		},
 	};
 }

@@ -8,6 +8,7 @@ import {
 	detectClaudeConversationsForRoot,
 	listClaudeProjects,
 } from "../../core/claude-projects.js";
+import { findCodeFolderCandidates } from "../../core/code-folders.js";
 import { configExists, readConfig, writeConfig } from "../../core/config-io.js";
 import { type Config, ConfigSchema, type RootProfile } from "../../core/config-schema.js";
 import { GLOBAL_IGNORE_PATTERNS } from "../../core/ignores-default.js";
@@ -30,6 +31,8 @@ import {
 import { log } from "../../lib/log.js";
 import { ensureSyncthing } from "../../platform/installer.js";
 import { ccsyncConfigPath, syncthingHome } from "../../platform/paths.js";
+import { pickClaudeConfigPaths } from "../claude-config-picker.js";
+import { pickBuckets, pickCodeFolders } from "../wizard.js";
 import { handleJoin } from "./join.js";
 
 export interface SetupOptions {
@@ -52,6 +55,7 @@ export async function handleSetup(opts: SetupOptions): Promise<void> {
 		return;
 	}
 
+	await configureBuckets();
 	await configureRootProfile();
 	await applyConfig();
 	await printShareInstructions();
@@ -94,6 +98,16 @@ async function waitForDaemon(guiAddress: string): Promise<void> {
 	}
 }
 
+async function configureBuckets(): Promise<void> {
+	const cfgPath = ccsyncConfigPath();
+	const cfg = await readConfig(cfgPath);
+	cfg.buckets = await pickBuckets(cfg.buckets);
+	if (cfg.buckets["claude-config"]?.enabled) {
+		cfg.buckets["claude-config"] = await pickClaudeConfigPaths(cfg.buckets["claude-config"]);
+	}
+	await writeConfig(cfgPath, cfg);
+}
+
 async function configureRootProfile(): Promise<void> {
 	const cfgPath = ccsyncConfigPath();
 	const cfg = await readConfig(cfgPath);
@@ -117,23 +131,36 @@ async function configureRootProfile(): Promise<void> {
 
 	await fs.mkdir(root, { recursive: true });
 	const rootConversations = await detectClaudeConversationsForRoot(root);
+	const selectedCodeFolders = await pickCodeFolders(
+		root,
+		await findCodeFolderCandidates(
+			root,
+			rootConversations.projects.map((project) => project.relativePath),
+		),
+	);
 	const rootProjects = rootConversations.projects.filter((project) =>
 		isPathInsideRoot(root, path.join(root, project.relativePath)),
 	);
 	cfg.rootProfile = createRootProfile({
 		canonicalRoot: root,
 		localRoot: root,
+		codeFolders: selectedCodeFolders.map((relativePath) => ({ relativePath })),
 		projects: rootProjects,
 		conversations: rootConversations.conversations,
 	});
 
-	cfg.buckets = withCodeRootBucket(cfg.buckets, root);
-	await ensureConversationDirs(cfg.rootProfile);
+	cfg.buckets = withCodeRootBucket(cfg.buckets, root, selectedCodeFolders);
+	if (cfg.buckets["claude-conversations"]?.enabled) await ensureConversationDirs(cfg.rootProfile);
 	await writeConfig(cfgPath, cfg);
 	log.success(`Root profile configured: ${root}`);
+	log.success(`Selected ${selectedCodeFolders.length} code folder(s)`);
 	if (rootProjects.length > 0)
 		log.success(`Mapped ${rootProjects.length} Claude conversation project(s)`);
-	log.success(`Selected ${rootConversations.conversations.length} total Claude conversation(s)`);
+	if (cfg.buckets["claude-conversations"]?.enabled) {
+		log.success(`Selected ${rootConversations.conversations.length} total Claude conversation(s)`);
+	} else {
+		log.warn("Claude conversations disabled");
+	}
 }
 
 async function applyConfig(): Promise<void> {

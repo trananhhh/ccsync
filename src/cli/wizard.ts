@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { createInterface } from "node:readline/promises";
 import pc from "picocolors";
 import { listClaudeProjects } from "../core/claude-projects.js";
+import type { CodeFolderCandidate } from "../core/code-folders.js";
 import type { Bucket } from "../core/config-schema.js";
 import { log } from "../lib/log.js";
 
@@ -123,10 +124,95 @@ export async function pickProjects(current: string[]): Promise<string[]> {
 	return [...selected];
 }
 
+export async function pickCodeFolders(
+	root: string,
+	candidates: CodeFolderCandidate[],
+): Promise<string[]> {
+	const rootOption = ".";
+	const items = [rootOption, ...candidates.map((candidate) => candidate.relativePath)].filter(
+		(value, index, arr) => arr.indexOf(value) === index,
+	);
+	if (items.length === 1) {
+		console.log(`\nNo project folders detected under ${root}.`);
+		const rl = createInterface({ input: process.stdin, output: process.stdout });
+		try {
+			const ans = (await rl.question("Sync the entire root? [Y/n] ")).trim().toLowerCase();
+			return ans === "n" || ans === "no" ? [] : [rootOption];
+		} finally {
+			rl.close();
+		}
+	}
+
+	const selected = new Set(items.filter((item) => item !== rootOption));
+	console.log("\nCode folders under root to sync (uncommitted edits included):");
+	console.log(pc.dim(`Root: ${root}`));
+	const rl = createInterface({ input: process.stdin, output: process.stdout });
+	try {
+		while (true) {
+			renderCodeFolders(items, selected);
+			const ans = (
+				await rl.question(
+					"\nToggle numbers, `a relative/path` to add, `n` to skip code sync, Enter to confirm: ",
+				)
+			).trim();
+			if (ans === "") break;
+			if (ans === "n") {
+				selected.clear();
+				break;
+			}
+			if (ans.startsWith("a ")) {
+				const relativePath = normalizeRelativeInput(ans.slice(2).trim());
+				if (!items.includes(relativePath)) items.push(relativePath);
+				selected.delete(rootOption);
+				selected.add(relativePath);
+				console.log("");
+				continue;
+			}
+			const nums = ans.split(/[\s,]+/).map((s) => Number.parseInt(s, 10) - 1);
+			for (const n of nums) {
+				if (n < 0 || n >= items.length) continue;
+				const item = items[n];
+				if (item === rootOption) {
+					if (selected.has(rootOption)) selected.delete(rootOption);
+					else {
+						selected.clear();
+						selected.add(rootOption);
+					}
+					continue;
+				}
+				selected.delete(rootOption);
+				if (selected.has(item)) selected.delete(item);
+				else selected.add(item);
+			}
+			console.log("");
+		}
+	} finally {
+		rl.close();
+	}
+	return [...selected].sort((a, b) => a.localeCompare(b));
+}
+
 function render2(items: string[], selected: Set<string>): void {
 	items.forEach((p, i) => {
 		const checked = selected.has(p) ? pc.green("[✓]") : pc.dim("[ ]");
 		const num = pc.dim(String(i + 1).padStart(2, " "));
 		console.log(`  ${num}  ${checked}  ${p}`);
 	});
+}
+
+function renderCodeFolders(items: string[], selected: Set<string>): void {
+	items.forEach((relativePath, i) => {
+		const checked = selected.has(relativePath) ? pc.green("[✓]") : pc.dim("[ ]");
+		const num = pc.dim(String(i + 1).padStart(2, " "));
+		const label = relativePath === "." ? ".  (entire root)" : relativePath;
+		console.log(`  ${num}  ${checked}  ${label}`);
+	});
+}
+
+function normalizeRelativeInput(value: string): string {
+	const normalized = path.normalize(value).replace(/\\/g, "/");
+	if (path.isAbsolute(normalized) || normalized === ".." || normalized.startsWith("../")) {
+		throw new Error(`Code folder must be relative to the selected root: ${value}`);
+	}
+	return normalized === "" ? "." : normalized;
 }

@@ -31,10 +31,15 @@ export async function handleJoin(opts: JoinOptions): Promise<void> {
 			id: inv.rootProfile.id,
 			canonicalRoot: inv.rootProfile.canonicalRoot,
 			localRoot,
+			codeFolders: inv.rootProfile.codeFolders,
 			projects: inv.rootProfile.projects,
 			conversations: inv.rootProfile.conversations,
 		});
-		cfg.buckets = withCodeRootBucket(cfg.buckets, localRoot);
+		cfg.buckets = withCodeRootBucket(
+			cfg.buckets,
+			localRoot,
+			cfg.rootProfile.codeFolders.map((folder) => folder.relativePath),
+		);
 		await ensureConversationDirs(cfg.rootProfile);
 		changed = true;
 		log.success(`Root profile mapped to ${localRoot}`);

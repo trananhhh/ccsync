@@ -1,9 +1,11 @@
 import type { Bucket, Peer, RootProfile } from "./config-schema.js";
 import {
+	localProjectPath,
+	rootCodeFolderId,
+	rootCodeFolders,
 	rootConversationFolderId,
 	rootConversationPath,
 	rootConversations,
-	rootFolderId,
 } from "./root-profile.js";
 import type { SyncthingDevice, SyncthingFolder } from "./syncthing-api.js";
 
@@ -65,9 +67,17 @@ function rootProfileToFolders(
 	const out: SyncthingFolder[] = [];
 	const rootBucket = buckets["code-root"];
 	if (rootBucket?.enabled) {
-		out.push(
-			folderFromBucket(rootFolderId(profile), "code-root", profile.localRoot, rootBucket, devices),
-		);
+		for (const folder of rootCodeFolders(profile)) {
+			out.push(
+				folderFromBucket(
+					rootCodeFolderId(profile, folder.relativePath),
+					`code-root: ${folder.relativePath}`,
+					localProjectPath(profile, folder.relativePath),
+					rootBucket,
+					devices,
+				),
+			);
+		}
 	}
 
 	const conversationBucket = buckets["claude-conversations"];

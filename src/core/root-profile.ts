@@ -2,13 +2,19 @@ import { createHash } from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
 import { claudeHome } from "../platform/paths.js";
-import type { RootConversation, RootProfile, RootProject } from "./config-schema.js";
+import type {
+	RootCodeFolder,
+	RootConversation,
+	RootProfile,
+	RootProject,
+} from "./config-schema.js";
 
 export interface CreateRootProfileInput {
 	id?: string;
 	canonicalRoot: string;
 	localRoot: string;
 	conversationMode?: RootProfile["conversationMode"];
+	codeFolders?: RootCodeFolder[];
 	projects?: RootProject[];
 	conversations?: RootConversation[];
 }
@@ -16,6 +22,12 @@ export interface CreateRootProfileInput {
 export function createRootProfile(input: CreateRootProfileInput): RootProfile {
 	const canonicalRoot = normalizeRoot(input.canonicalRoot);
 	const localRoot = normalizeRoot(input.localRoot);
+	const codeFolders =
+		input.codeFolders === undefined
+			? [{ relativePath: "." }]
+			: input.codeFolders.map((folder) => ({
+					relativePath: normalizeRelativePath(folder.relativePath),
+				}));
 	const projects = (input.projects ?? []).map((project) => ({
 		relativePath: normalizeRelativePath(project.relativePath),
 	}));
@@ -26,6 +38,7 @@ export function createRootProfile(input: CreateRootProfileInput): RootProfile {
 		canonicalRoot,
 		localRoot,
 		conversationMode: input.conversationMode ?? "direct",
+		codeFolders,
 		projects,
 		conversations,
 	};
@@ -75,6 +88,17 @@ export function rootFolderId(profile: RootProfile): string {
 	return `ccsync-root-${safeSegment(profile.id)}`;
 }
 
+export function rootCodeFolders(profile: RootProfile): RootCodeFolder[] {
+	if (profile.codeFolders.length > 0) return profile.codeFolders;
+	return [{ relativePath: "." }];
+}
+
+export function rootCodeFolderId(profile: RootProfile, relativePath: string): string {
+	const normalized = normalizeRelativePath(relativePath);
+	if (normalized === ".") return rootFolderId(profile);
+	return `ccsync-code-${safeSegment(profile.id)}-${hashSegment(normalized)}`;
+}
+
 export function conversationFolderId(profile: RootProfile, relativePath: string): string {
 	return `ccsync-conv-${safeSegment(profile.id)}-${hashSegment(normalizeRelativePath(relativePath))}`;
 }
@@ -89,10 +113,11 @@ export function rootConversationFolderId(
 
 export function inviteRootProfile(
 	profile: RootProfile,
-): Pick<RootProfile, "id" | "canonicalRoot" | "projects" | "conversations"> {
+): Pick<RootProfile, "id" | "canonicalRoot" | "codeFolders" | "projects" | "conversations"> {
 	return {
 		id: profile.id,
 		canonicalRoot: profile.canonicalRoot,
+		codeFolders: rootCodeFolders(profile),
 		projects: profile.projects,
 		conversations: rootConversations(profile),
 	};

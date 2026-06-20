@@ -20,6 +20,7 @@ describe("root profile Syncthing folders", () => {
 			id: "profile-a",
 			canonicalRoot: "/Users/alice/work",
 			localRoot: "/Users/alice/work",
+			codeFolders: [{ relativePath: "ccsync" }, { relativePath: "tools/api" }],
 			projects: [{ relativePath: "ccsync" }],
 			conversations: [
 				{ encodedName: "-Users-alice-work-ccsync", relativePath: "ccsync" },
@@ -30,6 +31,7 @@ describe("root profile Syncthing folders", () => {
 			id: hostProfile.id,
 			canonicalRoot: hostProfile.canonicalRoot,
 			localRoot: "/Users/bob/Coding",
+			codeFolders: hostProfile.codeFolders,
 			projects: hostProfile.projects,
 			conversations: hostProfile.conversations,
 		});
@@ -50,17 +52,19 @@ describe("root profile Syncthing folders", () => {
 		});
 
 		expect(hostFolders.map((f) => f.id)).toEqual(joinedFolders.map((f) => f.id));
-		expect(hostFolders[0].path).toBe(path.normalize("/Users/alice/work"));
-		expect(joinedFolders[0].path).toBe(path.normalize("/Users/bob/Coding"));
-		expect(hostFolders[1].path).toBe(
+		expect(hostFolders[0].path).toBe(path.normalize("/Users/alice/work/ccsync"));
+		expect(joinedFolders[0].path).toBe(path.normalize("/Users/bob/Coding/ccsync"));
+		expect(hostFolders[1].path).toBe(path.normalize("/Users/alice/work/tools/api"));
+		expect(joinedFolders[1].path).toBe(path.normalize("/Users/bob/Coding/tools/api"));
+		expect(hostFolders[2].path).toBe(
 			path.normalize(`${process.env.HOME}/.claude/projects/-Users-alice-work-ccsync`),
 		);
-		expect(joinedFolders[1].path).toBe(
+		expect(joinedFolders[2].path).toBe(
 			path.normalize(`${process.env.HOME}/.claude/projects/-Users-bob-Coding-ccsync`),
 		);
-		expect(hostFolders[2].path).toBe(
+		expect(hostFolders[3].path).toBe(
 			path.normalize(`${process.env.HOME}/.claude/projects/-Users-alice-Downloads-scratch`),
 		);
-		expect(joinedFolders[2].path).toBe(hostFolders[2].path);
+		expect(joinedFolders[3].path).toBe(hostFolders[3].path);
 	});
 });

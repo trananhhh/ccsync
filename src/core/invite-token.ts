@@ -9,6 +9,7 @@ export interface Invite {
 export interface InviteRootProfile {
 	id: string;
 	canonicalRoot: string;
+	codeFolders?: Array<{ relativePath: string }>;
 	projects: Array<{ relativePath: string }>;
 	conversations?: Array<{ encodedName: string; relativePath?: string }>;
 }
@@ -63,6 +64,9 @@ function isInviteRootProfile(value: unknown): value is InviteRootProfile {
 	return (
 		typeof profile.id === "string" &&
 		typeof profile.canonicalRoot === "string" &&
+		(profile.codeFolders === undefined ||
+			(Array.isArray(profile.codeFolders) &&
+				profile.codeFolders.every((folder) => typeof folder?.relativePath === "string"))) &&
 		Array.isArray(profile.projects) &&
 		profile.projects.every((project) => typeof project?.relativePath === "string") &&
 		(profile.conversations === undefined ||

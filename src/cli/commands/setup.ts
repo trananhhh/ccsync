@@ -23,12 +23,7 @@ import {
 	suggestRootFromProjects,
 } from "../../core/root-profile.js";
 import { SyncthingApi } from "../../core/syncthing-api.js";
-import {
-	generateHome,
-	isDaemonRunning,
-	readIdentity,
-	startDaemon,
-} from "../../core/syncthing-bootstrap.js";
+import { ensureDaemonRunning, generateHome, readIdentity } from "../../core/syncthing-bootstrap.js";
 import { log } from "../../lib/log.js";
 import { ensureSyncthing } from "../../platform/installer.js";
 import { ccsyncConfigPath, syncthingHome } from "../../platform/paths.js";
@@ -53,6 +48,7 @@ export async function handleSetup(opts: SetupOptions): Promise<void> {
 	}
 
 	if (opts.token) {
+		await ensureConfiguredDaemon();
 		await handleJoin({ token: opts.token });
 		log.plain("");
 		log.success(
@@ -63,6 +59,7 @@ export async function handleSetup(opts: SetupOptions): Promise<void> {
 
 	await configureBuckets();
 	await configureRootProfile();
+	await ensureConfiguredDaemon();
 	await applyConfig();
 	await printShareInstructions();
 }
@@ -89,19 +86,7 @@ async function bootstrap(machineName?: string): Promise<void> {
 	});
 	await writeConfig(ccsyncConfigPath(), cfg);
 
-	if (!(await isDaemonRunning(identity.guiAddress))) {
-		log.step("Starting Syncthing daemon…");
-		await startDaemon(stHome);
-		await waitForDaemon(identity.guiAddress);
-	}
-}
-
-async function waitForDaemon(guiAddress: string): Promise<void> {
-	const deadline = Date.now() + 15_000;
-	while (Date.now() < deadline) {
-		if (await isDaemonRunning(guiAddress)) return;
-		await new Promise((r) => setTimeout(r, 500));
-	}
+	await ensureConfiguredDaemon();
 }
 
 async function configureBuckets(): Promise<void> {
@@ -112,6 +97,15 @@ async function configureBuckets(): Promise<void> {
 		cfg.buckets["claude-config"] = await pickClaudeConfigPaths(cfg.buckets["claude-config"]);
 	}
 	await writeConfig(cfgPath, cfg);
+}
+
+async function ensureConfiguredDaemon(): Promise<void> {
+	const cfg = await readConfig(ccsyncConfigPath());
+	if (!cfg.syncthing) return;
+	const install = await ensureSyncthing();
+	if (!install.installed) throw new Error(install.message);
+	const status = await ensureDaemonRunning(cfg.syncthing.homeDir, cfg.syncthing.guiAddress);
+	if (status === "started") log.success("Syncthing daemon started");
 }
 
 async function configureRootProfile(): Promise<void> {

@@ -37,6 +37,32 @@ export async function startDaemon(homeDir: string): Promise<number> {
 	return spawnDetached(syncthing, ["serve", `--home=${homeDir}`, "--no-browser", "--no-restart"]);
 }
 
+export interface EnsureDaemonRunningOptions {
+	timeoutMs?: number;
+	pollMs?: number;
+	check?: (guiAddress: string) => Promise<boolean>;
+	start?: (homeDir: string) => Promise<unknown>;
+}
+
+export async function ensureDaemonRunning(
+	homeDir: string,
+	guiAddress: string,
+	opts: EnsureDaemonRunningOptions = {},
+): Promise<"already-running" | "started"> {
+	const check = opts.check ?? isDaemonRunning;
+	const start = opts.start ?? startDaemon;
+	if (await check(guiAddress)) return "already-running";
+
+	await start(homeDir);
+	const deadline = Date.now() + (opts.timeoutMs ?? 15_000);
+	const pollMs = opts.pollMs ?? 500;
+	while (Date.now() < deadline) {
+		if (await check(guiAddress)) return "started";
+		await new Promise((resolve) => setTimeout(resolve, pollMs));
+	}
+	throw new Error(`Syncthing daemon did not become reachable at ${guiAddress}`);
+}
+
 export async function isDaemonRunning(guiAddress: string): Promise<boolean> {
 	const addr = guiAddress.startsWith("http") ? guiAddress : `http://${guiAddress}`;
 	try {

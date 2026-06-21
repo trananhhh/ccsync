@@ -11,7 +11,9 @@ import {
 	rootConversationPath,
 	rootConversations,
 } from "../../core/root-profile.js";
+import { ensureDaemonRunning } from "../../core/syncthing-bootstrap.js";
 import { log } from "../../lib/log.js";
+import { ensureSyncthing } from "../../platform/installer.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
 
 export interface JoinOptions {
@@ -62,6 +64,16 @@ export async function handleJoin(opts: JoinOptions): Promise<void> {
 		);
 	}
 	if (changed) await writeConfig(cfgPath, cfg);
+
+	if (!cfg.syncthing) {
+		log.error("config.syncthing missing — run `ccsync setup` first");
+		process.exitCode = 1;
+		return;
+	}
+	const install = await ensureSyncthing();
+	if (!install.installed) throw new Error(install.message);
+	const daemonStatus = await ensureDaemonRunning(cfg.syncthing.homeDir, cfg.syncthing.guiAddress);
+	if (daemonStatus === "started") log.success("Syncthing daemon started");
 
 	log.step("Applying config to local Syncthing…");
 	const res = await apply(cfg);

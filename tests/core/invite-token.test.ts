@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { decodeInvite, encodeInvite } from "../../src/core/invite-token.js";
+import { decodeInvite, encodeInvite, encodeLegacyInvite } from "../../src/core/invite-token.js";
 
 const ID = "AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA";
 
 describe("invite-token", () => {
 	it("round-trips a token", () => {
 		const enc = encodeInvite({ deviceId: ID, name: "macbook", introducer: true });
-		expect(enc.startsWith("ccs1_")).toBe(true);
+		expect(enc.startsWith("ccs2_")).toBe(true);
 		const dec = decodeInvite(enc);
 		expect(dec.deviceId).toBe(ID);
 		expect(dec.name).toBe("macbook");
@@ -47,6 +47,36 @@ describe("invite-token", () => {
 	it("uses URL-safe base64 (no +/=)", () => {
 		const enc = encodeInvite({ deviceId: ID, name: "x", introducer: false });
 		expect(enc).not.toMatch(/[+/=]/);
+	});
+
+	it("keeps large root profile invites compact", () => {
+		const rootProfile = {
+			id: "profile-a",
+			canonicalRoot: "/Users/alice/work",
+			codeFolders: Array.from({ length: 20 }, (_, i) => ({ relativePath: `repo-${i}` })),
+			projects: Array.from({ length: 20 }, (_, i) => ({ relativePath: `repo-${i}` })),
+			conversations: Array.from({ length: 80 }, (_, i) => ({
+				encodedName: `-Users-alice-work-repo-${i}`,
+				relativePath: `repo-${i}`,
+			})),
+		};
+
+		const compact = encodeInvite({ deviceId: ID, name: "macbook", introducer: true, rootProfile });
+		const legacy = encodeLegacyInvite({
+			deviceId: ID,
+			name: "macbook",
+			introducer: true,
+			rootProfile,
+		});
+
+		expect(compact.length).toBeLessThan(legacy.length * 0.45);
+		expect(decodeInvite(compact).rootProfile).toEqual(rootProfile);
+	});
+
+	it("decodes legacy ccs1 tokens", () => {
+		const enc = encodeLegacyInvite({ deviceId: ID, name: "macbook", introducer: true });
+		expect(enc.startsWith("ccs1_")).toBe(true);
+		expect(decodeInvite(enc).deviceId).toBe(ID);
 	});
 
 	it("rejects tokens without prefix", () => {

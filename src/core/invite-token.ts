@@ -1,3 +1,5 @@
+import { deflateRawSync, inflateRawSync } from "node:zlib";
+
 export interface Invite {
 	deviceId: string;
 	name: string;
@@ -14,31 +16,43 @@ export interface InviteRootProfile {
 	conversations?: Array<{ encodedName: string; relativePath?: string }>;
 }
 
-const PREFIX = "ccs1_";
+const LEGACY_PREFIX = "ccs1_";
+const PREFIX = "ccs2_";
 
 export function encodeInvite(inv: Omit<Invite, "version">): string {
 	const payload: Invite = { ...inv, version: 1 };
 	const json = JSON.stringify(payload);
-	const b64 = Buffer.from(json, "utf-8")
-		.toString("base64")
-		.replace(/\+/g, "-")
-		.replace(/\//g, "_")
-		.replace(/=+$/, "");
-	return PREFIX + b64;
+	return PREFIX + base64UrlEncode(deflateRawSync(Buffer.from(json, "utf-8")));
+}
+
+export function encodeLegacyInvite(inv: Omit<Invite, "version">): string {
+	const payload: Invite = { ...inv, version: 1 };
+	return LEGACY_PREFIX + base64UrlEncode(Buffer.from(JSON.stringify(payload), "utf-8"));
 }
 
 export function decodeInvite(token: string): Invite {
-	if (!token.startsWith(PREFIX)) {
-		throw new Error(`Not a ccsync invite token (missing ${PREFIX} prefix)`);
+	if (token.startsWith(PREFIX)) {
+		return parseInviteJson(inflateTokenBody(token.slice(PREFIX.length)));
 	}
-	const b64 = token.slice(PREFIX.length).replace(/-/g, "+").replace(/_/g, "/");
-	const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
-	let json: string;
+	if (token.startsWith(LEGACY_PREFIX)) {
+		return parseInviteJson(decodeLegacyTokenBody(token.slice(LEGACY_PREFIX.length)));
+	}
+	throw new Error(`Not a ccsync invite token (missing ${PREFIX} or ${LEGACY_PREFIX} prefix)`);
+}
+
+function inflateTokenBody(body: string): string {
 	try {
-		json = Buffer.from(padded, "base64").toString("utf-8");
+		return inflateRawSync(base64UrlDecode(body)).toString("utf-8");
 	} catch {
-		throw new Error("Invite token base64 decoding failed");
+		throw new Error("Invite token compressed body decoding failed");
 	}
+}
+
+function decodeLegacyTokenBody(body: string): string {
+	return base64UrlDecode(body).toString("utf-8");
+}
+
+function parseInviteJson(json: string): Invite {
 	let parsed: unknown;
 	try {
 		parsed = JSON.parse(json);
@@ -56,6 +70,20 @@ export function decodeInvite(token: string): Invite {
 		throw new Error("Invite token missing required fields");
 	}
 	return inv as Invite;
+}
+
+function base64UrlEncode(buffer: Buffer): string {
+	return buffer.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+function base64UrlDecode(value: string): Buffer {
+	try {
+		const b64 = value.replace(/-/g, "+").replace(/_/g, "/");
+		const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
+		return Buffer.from(padded, "base64");
+	} catch {
+		throw new Error("Invite token base64 decoding failed");
+	}
 }
 
 function isInviteRootProfile(value: unknown): value is InviteRootProfile {

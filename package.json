@@ -12,7 +12,7 @@
     "LICENSE"
   ],
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=20.17.0"
   },
   "scripts": {
     "build": "tsup",
@@ -44,7 +44,9 @@
   },
   "homepage": "https://github.com/trananhhh/ccsync#readme",
   "dependencies": {
+    "@inquirer/prompts": "^8.0.0",
     "commander": "^14.0.0",
+    "nanospinner": "^1.0.0",
     "picocolors": "^1.1.1",
     "yaml": "^2.9.0",
     "zod": "^4.0.0"

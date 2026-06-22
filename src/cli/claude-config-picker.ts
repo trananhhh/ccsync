@@ -1,7 +1,8 @@
 import * as path from "node:path";
-import { createInterface } from "node:readline/promises";
+import { checkbox, confirm } from "@inquirer/prompts";
 import pc from "picocolors";
 import type { Bucket } from "../core/config-schema.js";
+import { tryPrompt } from "../lib/prompt-or.js";
 
 export async function pickClaudeConfigPaths(bucket: Bucket): Promise<Bucket> {
 	const items = bucket.paths.map((configPath) => ({
@@ -10,50 +11,32 @@ export async function pickClaudeConfigPaths(bucket: Bucket): Promise<Bucket> {
 	}));
 	if (items.length === 0) return bucket;
 
-	const selected = new Set(bucket.paths);
-	console.log("\nClaude Code config items to sync:");
-	console.log(pc.dim("Type numbers separated by spaces to toggle, then press Enter to confirm."));
-	const rl = createInterface({ input: process.stdin, output: process.stdout });
-	try {
-		while (true) {
-			render(items, selected);
-			const ans = (
-				await rl.question("\nToggle numbers, `n` to skip all Claude config, Enter to confirm: ")
-			)
-				.trim()
-				.toLowerCase();
-			if (ans === "") break;
-			if (ans === "n") {
-				selected.clear();
-				break;
-			}
-			const nums = ans.split(/[\s,]+/).map((s) => Number.parseInt(s, 10) - 1);
-			for (const n of nums) {
-				if (n < 0 || n >= items.length) continue;
-				const item = items[n].path;
-				if (selected.has(item)) selected.delete(item);
-				else selected.add(item);
-			}
-			console.log("");
-		}
-	} finally {
-		rl.close();
-	}
+	const result = await tryPrompt(
+		async () => {
+			const skipAll = await confirm({
+				message: "Sync Claude Code config?",
+				default: true,
+			});
+			if (!skipAll) return { enabled: false as const, paths: [] };
+			const picked = await checkbox<string>({
+				message: "Claude Code config items to sync (space to toggle, enter to confirm):",
+				choices: items.map((item) => ({
+					name: item.label,
+					value: item.path,
+					checked: true,
+					description: pc.dim(item.path),
+				})),
+			});
+			return { enabled: true as const, paths: picked };
+		},
+		(): { enabled: true; paths: string[] } => ({ enabled: true, paths: bucket.paths }),
+	);
 
-	const paths = items.map((item) => item.path).filter((item) => selected.has(item));
 	return {
 		...bucket,
-		enabled: paths.length > 0,
-		paths,
+		enabled: result.enabled && result.paths.length > 0,
+		paths: result.enabled ? result.paths : [],
 	};
-}
-
-function render(items: Array<{ path: string; label: string }>, selected: Set<string>): void {
-	items.forEach((item, i) => {
-		const checked = selected.has(item.path) ? pc.green("[✓]") : pc.dim("[ ]");
-		const num = pc.dim(String(i + 1).padStart(2, " "));
-		console.log(`  ${num}  ${checked}  ${item.label}  ${pc.dim(item.path)}`);
-	});
 }
 
 function labelForConfigPath(configPath: string): string {

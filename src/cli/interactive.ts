@@ -1,4 +1,5 @@
-import { createInterface } from "node:readline/promises";
+import { confirm, rawlist } from "@inquirer/prompts";
+import { createSpinner } from "nanospinner";
 import pc from "picocolors";
 import { apply } from "../core/applier.js";
 import { watchAndAutoAccept } from "../core/auto-accept.js";
@@ -12,6 +13,7 @@ import { SyncthingApi } from "../core/syncthing-api.js";
 import { buildFolders } from "../core/syncthing-config.js";
 import { fetchPending, type PendingMap } from "../core/syncthing-pending.js";
 import { log } from "../lib/log.js";
+import { isInteractive } from "../lib/prompt-or.js";
 import { ccsyncConfigPath } from "../platform/paths.js";
 import { handleConflicts } from "./commands/conflicts.js";
 import { handleRelease } from "./commands/release.js";
@@ -88,14 +90,8 @@ async function manualAcceptPrompt(cfg: Cfg, pending: PendingMap): Promise<void> 
 		log.plain(pc.dim(`    address=${m.address}  seen=${m.time}`));
 	}
 
-	const rl = createInterface({ input: process.stdin, output: process.stdout });
-	let ans: string;
-	try {
-		ans = (await rl.question("\nAccept all? [Y/n] ")).trim().toLowerCase();
-	} finally {
-		rl.close();
-	}
-	if (ans === "n" || ans === "no") return;
+	const accept = await confirm({ message: "Accept all?", default: true });
+	if (!accept) return;
 
 	for (const id of ids) {
 		const peer: Peer = PeerSchema.parse({
@@ -107,9 +103,17 @@ async function manualAcceptPrompt(cfg: Cfg, pending: PendingMap): Promise<void> 
 		cfg.peers.push(peer);
 	}
 	await writeConfig(ccsyncConfigPath(), cfg);
-	log.step("Applying to Syncthing…");
-	await apply(cfg);
-	log.success(`Accepted ${ids.length} device(s)`);
+	const spinner = isInteractive() ? createSpinner("Applying to Syncthing…").start() : null;
+	try {
+		await apply(cfg);
+		spinner?.success({ text: `Accepted ${ids.length} device(s)` });
+	} catch (err) {
+		spinner?.error({ text: `Apply failed: ${(err as Error).message}` });
+		throw err;
+	} finally {
+		spinner?.stop();
+	}
+	if (!spinner) log.success(`Accepted ${ids.length} device(s)`);
 }
 
 function humanBytes(b: number): string {
@@ -120,6 +124,7 @@ function humanBytes(b: number): string {
 }
 
 async function showDashboard(cfg: Cfg, api: SyncthingApi): Promise<void> {
+	const spinner = isInteractive() ? createSpinner("Reading sync status…").start() : null;
 	const sys = await api.systemStatus();
 	const conns = await api.connections();
 	const enabledBuckets = Object.entries(cfg.buckets).filter(([, b]) => b.enabled);
@@ -155,6 +160,10 @@ async function showDashboard(cfg: Cfg, api: SyncthingApi): Promise<void> {
 			missingPaths++;
 		}
 	}
+	const conflicts = await findConflicts(cfg).catch(() => []);
+	spinner?.success({ text: "Status ready" });
+	spinner?.stop();
+
 	const peersOnline = cfg.peers.filter((p) => conns.connections[p.deviceId]?.connected).length;
 
 	console.log("");
@@ -179,25 +188,25 @@ async function showDashboard(cfg: Cfg, api: SyncthingApi): Promise<void> {
 		log.warn(`${pendingFolders} folder(s) pending — files still transferring`);
 	}
 
-	const conflicts = await findConflicts(cfg).catch(() => []);
 	if (conflicts.length > 0) {
 		log.warn(`${conflicts.length} conflict file(s) — press [c] to resolve`);
 	}
 }
 
 async function shortcutPrompt(cfg: Cfg, api: SyncthingApi): Promise<void> {
+	if (!isInteractive()) return;
 	console.log("");
-	console.log(
-		pc.dim("  [s] status detail  [n] add a machine  [c] conflicts  [r] release & switch  [q] quit"),
-	);
-
-	const rl = createInterface({ input: process.stdin, output: process.stdout });
-	let ans: string;
-	try {
-		ans = (await rl.question("> ")).trim().toLowerCase();
-	} finally {
-		rl.close();
-	}
+	const ans = await rawlist({
+		message: "Action",
+		choices: [
+			{ name: "[s] status detail", value: "s" },
+			{ name: "[n] add a machine", value: "n" },
+			{ name: "[c] conflicts", value: "c" },
+			{ name: "[r] release & switch", value: "r" },
+			{ name: "[q] quit", value: "q" },
+		],
+		loop: false,
+	});
 
 	switch (ans) {
 		case "s":
@@ -218,6 +227,7 @@ async function shortcutPrompt(cfg: Cfg, api: SyncthingApi): Promise<void> {
 }
 
 async function printInviteAndWait(cfg: Cfg, api: SyncthingApi): Promise<void> {
+	const spinner = isInteractive() ? createSpinner("Generating invite…").start() : null;
 	const sys = await api.systemStatus();
 	await createInvite();
 	const token = encodeInvite({
@@ -226,6 +236,9 @@ async function printInviteAndWait(cfg: Cfg, api: SyncthingApi): Promise<void> {
 		introducer: true,
 		rootProfile: cfg.rootProfile ? inviteRootProfile(cfg.rootProfile) : undefined,
 	});
+	spinner?.success({ text: "Invite ready" });
+	spinner?.stop();
+
 	console.log("");
 	log.success("Run this on the new machine (one-time, expires in 10 min):");
 	console.log("");

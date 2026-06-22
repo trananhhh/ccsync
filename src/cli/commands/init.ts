@@ -1,4 +1,5 @@
 import * as os from "node:os";
+import { createSpinner } from "nanospinner";
 import { DEFAULT_BUCKETS } from "../../core/buckets-default.js";
 import { configExists, writeConfig } from "../../core/config-io.js";
 import { type Config, ConfigSchema } from "../../core/config-schema.js";
@@ -10,6 +11,7 @@ import {
 	startDaemon,
 } from "../../core/syncthing-bootstrap.js";
 import { log } from "../../lib/log.js";
+import { isInteractive } from "../../lib/prompt-or.js";
 import { ensureSyncthing } from "../../platform/installer.js";
 import { ccsyncConfigPath, syncthingHome } from "../../platform/paths.js";
 
@@ -19,20 +21,30 @@ export interface InitOptions {
 }
 
 export async function handleInit(opts: InitOptions): Promise<void> {
-	log.step("Checking Syncthing installation…");
+	const installSpinner = isInteractive()
+		? createSpinner("Checking Syncthing installation…").start()
+		: null;
+	if (!installSpinner) log.step("Checking Syncthing installation…");
 	const install = await ensureSyncthing();
 	if (!install.installed) {
+		installSpinner?.error({ text: install.message });
+		installSpinner?.stop();
 		log.error(install.message);
 		process.exitCode = 1;
 		return;
 	}
-	log.success(`Syncthing: ${install.path} (${install.message})`);
+	installSpinner?.success({ text: `Syncthing: ${install.path} (${install.message})` });
+	installSpinner?.stop();
 
 	const stHome = syncthingHome();
-	log.step(`Bootstrapping Syncthing home at ${stHome}`);
+	const bootstrapSpinner = isInteractive()
+		? createSpinner(`Bootstrapping Syncthing home at ${stHome}`).start()
+		: null;
+	if (!bootstrapSpinner) log.step(`Bootstrapping Syncthing home at ${stHome}`);
 	await generateHome(stHome);
 	const identity = await readIdentity(stHome);
-	log.success(`Device ID: ${identity.deviceId}`);
+	bootstrapSpinner?.success({ text: `Device ID: ${identity.deviceId}` });
+	bootstrapSpinner?.stop();
 
 	const configPath = ccsyncConfigPath();
 	if ((await configExists(configPath)) && !opts.force) {
@@ -54,9 +66,13 @@ export async function handleInit(opts: InitOptions): Promise<void> {
 	}
 
 	if (!(await isDaemonRunning(identity.guiAddress))) {
-		log.step("Starting Syncthing daemon…");
+		const daemonSpinner = isInteractive()
+			? createSpinner("Starting Syncthing daemon…").start()
+			: null;
+		if (!daemonSpinner) log.step("Starting Syncthing daemon…");
 		const pid = await startDaemon(stHome);
-		log.success(`Daemon started (pid ${pid})`);
+		daemonSpinner?.success({ text: `Daemon started (pid ${pid})` });
+		daemonSpinner?.stop();
 	} else {
 		log.success("Syncthing daemon already running");
 	}

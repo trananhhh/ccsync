@@ -149,6 +149,13 @@ advanced
 	.action(handleClaim);
 
 program.parseAsync(process.argv).catch((err) => {
+	if (
+		typeof err === "object" &&
+		err !== null &&
+		(err as { name?: unknown }).name === "ExitPromptError"
+	) {
+		process.exit(0);
+	}
 	console.error(err);
 	process.exitCode = 1;
 });

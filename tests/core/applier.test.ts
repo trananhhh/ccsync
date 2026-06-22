@@ -40,4 +40,33 @@ describe("collectStignoreTargets", () => {
 		]);
 		expect(targets[1].bucket.ignore).toEqual(["*.tmp"]);
 	});
+
+	it("tags code-root targets with codeFolderRoot so writer can read .ccsyncignore", () => {
+		const cfg: Config = {
+			machineName: "macbook",
+			peers: [],
+			globalIgnore: [],
+			buckets: {
+				"code-root": {
+					enabled: true,
+					paths: [path.normalize("/Users/alice/work/project-a")],
+					ignore: [],
+					versioning: { type: "simple", keep: 5 },
+				},
+				"claude-config": {
+					enabled: true,
+					paths: [path.normalize("/Users/alice/.claude")],
+					ignore: [],
+					versioning: { type: "simple", keep: 5 },
+				},
+			},
+		};
+
+		const targets = collectStignoreTargets(cfg);
+		const codeRootTarget = targets.find((t) => t.bucket === cfg.buckets["code-root"]);
+		const claudeConfigTarget = targets.find((t) => t.bucket === cfg.buckets["claude-config"]);
+
+		expect(codeRootTarget?.codeFolderRoot).toBe(codeRootTarget?.folderPath);
+		expect(claudeConfigTarget?.codeFolderRoot).toBeUndefined();
+	});
 });

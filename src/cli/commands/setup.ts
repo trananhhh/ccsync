@@ -1,7 +1,9 @@
+import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { createInterface } from "node:readline/promises";
+import { input } from "@inquirer/prompts";
+import { createSpinner } from "nanospinner";
 import { apply } from "../../core/applier.js";
 import { DEFAULT_BUCKETS, withCodeRootBucket } from "../../core/buckets-default.js";
 import {
@@ -25,6 +27,7 @@ import {
 import { SyncthingApi } from "../../core/syncthing-api.js";
 import { ensureDaemonRunning, generateHome, readIdentity } from "../../core/syncthing-bootstrap.js";
 import { log } from "../../lib/log.js";
+import { isInteractive } from "../../lib/prompt-or.js";
 import { ensureSyncthing } from "../../platform/installer.js";
 import { ccsyncConfigPath, syncthingHome } from "../../platform/paths.js";
 import { pickClaudeConfigPaths } from "../claude-config-picker.js";
@@ -73,9 +76,14 @@ async function bootstrap(machineName?: string): Promise<void> {
 	}
 
 	const stHome = syncthingHome();
-	log.step("Bootstrapping Syncthing identity…");
+	const spinner = isInteractive()
+		? createSpinner("Bootstrapping Syncthing identity…").start()
+		: null;
+	if (!spinner) log.step("Bootstrapping Syncthing identity…");
 	await generateHome(stHome);
 	const identity = await readIdentity(stHome);
+	spinner?.success({ text: "Syncthing identity ready" });
+	spinner?.stop();
 
 	const cfg: Config = ConfigSchema.parse({
 		machineName: machineName ?? os.hostname(),
@@ -120,14 +128,11 @@ async function configureRootProfile(): Promise<void> {
 	log.plain(
 		"Choose one code root to sync. Projects under this root can keep Claude conversations mapped across machines.",
 	);
-	const rl = createInterface({ input: process.stdin, output: process.stdout });
-	let root: string;
-	try {
-		const ans = (await rl.question(`Code root [${suggestedRoot}]: `)).trim();
-		root = path.resolve(ans || suggestedRoot);
-	} finally {
-		rl.close();
-	}
+	const ans = await input({
+		message: "Code root",
+		default: suggestedRoot,
+	});
+	const root = path.resolve(ans.trim() || suggestedRoot);
 
 	await fs.mkdir(root, { recursive: true });
 	const rootConversations = await detectClaudeConversationsForRoot(root);
@@ -138,6 +143,12 @@ async function configureRootProfile(): Promise<void> {
 			rootConversations.projects.map((project) => project.relativePath),
 		),
 	);
+	const ignoredCount = countCcsyncignores(root, selectedCodeFolders);
+	if (ignoredCount > 0) {
+		log.plain(
+			`I scanned your code folders; I found a \`.ccsyncignore\` in ${ignoredCount} of them — they'll be applied automatically.`,
+		);
+	}
 	const rootProjects = rootConversations.projects.filter((project) =>
 		isPathInsideRoot(root, path.join(root, project.relativePath)),
 	);
@@ -165,11 +176,15 @@ async function configureRootProfile(): Promise<void> {
 
 async function applyConfig(): Promise<void> {
 	const cfg = await readConfig(ccsyncConfigPath());
+	const spinner = isInteractive() ? createSpinner("Applying config to Syncthing…").start() : null;
+	if (!spinner) log.step("Applying to Syncthing…");
 	try {
 		await apply(cfg);
+		spinner?.success({ text: "Config applied" });
 	} catch (err) {
-		log.warn(`Could not apply to Syncthing yet: ${(err as Error).message}`);
+		spinner?.error({ text: `Could not apply: ${(err as Error).message}` });
 	}
+	spinner?.stop();
 }
 
 async function printShareInstructions(): Promise<void> {
@@ -179,6 +194,8 @@ async function printShareInstructions(): Promise<void> {
 		apiKey: cfg.syncthing.apiKey,
 		guiAddress: cfg.syncthing.guiAddress,
 	});
+	const spinner = isInteractive() ? createSpinner("Preparing invite token…").start() : null;
+	if (!spinner) log.step("Preparing invite token…");
 	const sys = await api.systemStatus();
 	const token = encodeInvite({
 		deviceId: sys.myID,
@@ -186,6 +203,8 @@ async function printShareInstructions(): Promise<void> {
 		introducer: true,
 		rootProfile: cfg.rootProfile ? inviteRootProfile(cfg.rootProfile) : undefined,
 	});
+	spinner?.success({ text: "Invite ready" });
+	spinner?.stop();
 
 	log.plain("");
 	log.success(`Ready — you're "${cfg.machineName}"`);
@@ -198,4 +217,16 @@ async function ensureConversationDirs(profile: RootProfile): Promise<void> {
 	for (const conversation of rootConversations(profile)) {
 		await fs.mkdir(rootConversationPath(profile, conversation), { recursive: true });
 	}
+}
+
+function countCcsyncignores(root: string, folders: string[]): number {
+	let count = 0;
+	for (const relativePath of folders) {
+		if (relativePath === ".") {
+			if (existsSync(path.join(root, ".ccsyncignore"))) count++;
+			continue;
+		}
+		if (existsSync(path.join(root, relativePath, ".ccsyncignore"))) count++;
+	}
+	return count;
 }

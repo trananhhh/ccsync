@@ -1,3 +1,5 @@
+import { log } from "../lib/log.js";
+import { findUnanchoredNegations } from "./ccsyncignore.js";
 import type { Bucket, Config } from "./config-schema.js";
 import { rootConversationPath, rootConversations } from "./root-profile.js";
 import { writeStignore } from "./stignore-writer.js";
@@ -37,12 +39,20 @@ export async function apply(cfg: Config): Promise<ApplyResult> {
 	let stignores = 0;
 	for (const target of collectStignoreTargets(cfg)) {
 		try {
-			await writeStignore({
+			const result = await writeStignore({
 				folderPath: target.folderPath,
 				bucket: target.bucket,
 				globalIgnore: cfg.globalIgnore,
+				codeFolderRoot: target.codeFolderRoot,
 			});
-			stignores++;
+			if (result.written) {
+				stignores++;
+				for (const line of findUnanchoredNegations(result.projectIgnore)) {
+					log.warn(
+						`.ccsyncignore: unanchored negation "${line}" — Syncthing may force directory traversal; prefix with "/" to root-anchor`,
+					);
+				}
+			}
 		} catch {
 			// non-fatal; folder may not exist on this machine
 		}
@@ -66,6 +76,7 @@ export async function apply(cfg: Config): Promise<ApplyResult> {
 export interface StignoreTarget {
 	folderPath: string;
 	bucket: Bucket;
+	codeFolderRoot?: string;
 }
 
 export function collectStignoreTargets(cfg: Config): StignoreTarget[] {
@@ -81,7 +92,13 @@ export function collectStignoreTargets(cfg: Config): StignoreTarget[] {
 			}
 			continue;
 		}
-		for (const folderPath of bucket.paths) targets.push({ folderPath, bucket });
+		for (const folderPath of bucket.paths) {
+			targets.push({
+				folderPath,
+				bucket,
+				codeFolderRoot: name === "code-root" ? folderPath : undefined,
+			});
+		}
 	}
 	return targets;
 }

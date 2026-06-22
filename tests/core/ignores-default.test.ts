@@ -23,4 +23,26 @@ describe("ignores-default", () => {
 		const bucketIdx = out.indexOf("my-bucket-pattern");
 		expect(gitIdx).toBeLessThan(bucketIdx);
 	});
+
+	it("buildStignore emits the project section after the bucket section when projectIgnore is supplied", () => {
+		const out = buildStignore(["bucket-only"], [], ["pnpm-lock.yaml", "!/coverage/lcov.info"]);
+		const bucketIdx = out.indexOf("bucket-only");
+		const projectHeaderIdx = out.indexOf("// Project (.ccsyncignore)");
+		const firstProjectPatternIdx = out.indexOf("pnpm-lock.yaml");
+		expect(projectHeaderIdx).toBeGreaterThan(bucketIdx);
+		expect(firstProjectPatternIdx).toBeGreaterThan(projectHeaderIdx);
+		expect(out).toContain("!/coverage/lcov.info");
+	});
+
+	it("buildStignore prepends #escape=\\ when projectIgnore contains a backslash", () => {
+		const out = buildStignore([], [], ["win\\path\\pattern"]);
+		expect(out.startsWith("#escape=\\\n")).toBe(true);
+	});
+
+	it("buildStignore omits the project section when projectIgnore is empty or undefined", () => {
+		const noneOut = buildStignore(["bucket-only"], []);
+		expect(noneOut).not.toContain("// Project (.ccsyncignore)");
+		const emptyOut = buildStignore(["bucket-only"], [], []);
+		expect(emptyOut).not.toContain("// Project (.ccsyncignore)");
+	});
 });

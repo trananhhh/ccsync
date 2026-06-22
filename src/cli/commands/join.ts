@@ -1,6 +1,8 @@
+import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
-import { createInterface } from "node:readline/promises";
+import { input } from "@inquirer/prompts";
+import { createSpinner } from "nanospinner";
 import { apply } from "../../core/applier.js";
 import { withCodeRootBucket } from "../../core/buckets-default.js";
 import { readConfig, writeConfig } from "../../core/config-io.js";
@@ -13,6 +15,7 @@ import {
 } from "../../core/root-profile.js";
 import { ensureDaemonRunning } from "../../core/syncthing-bootstrap.js";
 import { log } from "../../lib/log.js";
+import { isInteractive } from "../../lib/prompt-or.js";
 import { ensureSyncthing } from "../../platform/installer.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
 
@@ -42,6 +45,15 @@ export async function handleJoin(opts: JoinOptions): Promise<void> {
 			localRoot,
 			cfg.rootProfile.codeFolders.map((folder) => folder.relativePath),
 		);
+		const ignoredCount = countCcsyncignores(
+			localRoot,
+			cfg.rootProfile.codeFolders.map((folder) => folder.relativePath),
+		);
+		if (ignoredCount > 0) {
+			log.plain(
+				`I scanned your code folders; I found a \`.ccsyncignore\` in ${ignoredCount} of them — they'll be applied automatically.`,
+			);
+		}
 		await ensureConversationDirs(cfg.rootProfile);
 		changed = true;
 		log.success(`Root profile mapped to ${localRoot}`);
@@ -75,26 +87,42 @@ export async function handleJoin(opts: JoinOptions): Promise<void> {
 	const daemonStatus = await ensureDaemonRunning(cfg.syncthing.homeDir, cfg.syncthing.guiAddress);
 	if (daemonStatus === "started") log.success("Syncthing daemon started");
 
-	log.step("Applying config to local Syncthing…");
+	const spinner = isInteractive()
+		? createSpinner("Applying config to local Syncthing…").start()
+		: null;
+	if (!spinner) log.step("Applying config to local Syncthing…");
 	const res = await apply(cfg);
-	log.success(`Applied: ${res.foldersConfigured} folders, ${res.devicesConfigured} devices`);
+	spinner?.success({
+		text: `Applied: ${res.foldersConfigured} folders, ${res.devicesConfigured} devices`,
+	});
+	spinner?.stop();
 }
 
 async function promptLocalRoot(canonicalRoot: string): Promise<string> {
 	log.plain("");
 	log.plain(`Host canonical root: ${canonicalRoot}`);
 	log.plain("Choose where this root should live on this machine.");
-	const rl = createInterface({ input: process.stdin, output: process.stdout });
-	try {
-		const ans = (await rl.question(`Local root [${canonicalRoot}]: `)).trim();
-		return path.resolve(ans || canonicalRoot);
-	} finally {
-		rl.close();
-	}
+	const ans = await input({
+		message: "Local root",
+		default: canonicalRoot,
+	});
+	return path.resolve(ans.trim() || canonicalRoot);
 }
 
 async function ensureConversationDirs(profile: RootProfile): Promise<void> {
 	for (const conversation of rootConversations(profile)) {
 		await fs.mkdir(rootConversationPath(profile, conversation), { recursive: true });
 	}
+}
+
+function countCcsyncignores(root: string, folders: string[]): number {
+	let count = 0;
+	for (const relativePath of folders) {
+		if (relativePath === ".") {
+			if (existsSync(path.join(root, ".ccsyncignore"))) count++;
+			continue;
+		}
+		if (existsSync(path.join(root, relativePath, ".ccsyncignore"))) count++;
+	}
+	return count;
 }

@@ -90,9 +90,15 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 				const cfg = await read(deps.configPath);
 				const api = deps.apiFor(cfg);
 				await applyPauseFn(api, body.on ? "pause-all" : "resume-all");
-				await applyAndSaveFn(deps.configPath, (c) => {
-					c.metered = body.on;
-				});
+				// applyAndSave runs LAST so apply's derived pause state (paused = metered)
+				// is the final PUT and cannot be undone by a later re-apply.
+				await applyAndSaveFn(
+					deps.configPath,
+					(c) => {
+						c.metered = body.on;
+					},
+					{ api },
+				);
 				return send(res, 200, { ok: true, metered: body.on });
 			}
 
@@ -101,6 +107,15 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 				const cfg = await read(deps.configPath);
 				const api = deps.apiFor(cfg);
 				await applyPauseFn(api, body.on ? "pause-all" : "resume-all");
+				// Persist the flag so the pause survives the next apply (Phase 1:
+				// pause-all and metered share the same durable flag).
+				await applyAndSaveFn(
+					deps.configPath,
+					(c) => {
+						c.metered = body.on;
+					},
+					{ api },
+				);
 				return send(res, 200, { ok: true, paused: body.on });
 			}
 

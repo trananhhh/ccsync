@@ -113,21 +113,50 @@ function clamp(n: number, lo: number, hi: number): number {
 	return Math.min(hi, Math.max(lo, n));
 }
 
+const MAX_BODY_BYTES = 1_000_000;
+
+/** Body exceeded {@link MAX_BODY_BYTES} → respond 413 and tear down the socket. */
+class PayloadTooLargeError extends Error {
+	constructor() {
+		super("payload too large");
+		this.name = "PayloadTooLargeError";
+	}
+}
+
+/** Body was not valid JSON → respond 400 instead of the catch-all 500. */
+class BadJsonError extends Error {
+	constructor() {
+		super("invalid JSON body");
+		this.name = "BadJsonError";
+	}
+}
+
 function readJson<T>(req: http.IncomingMessage): Promise<T> {
 	return new Promise((resolve, reject) => {
 		let raw = "";
+		let aborted = false;
 		req.on("data", (c) => {
+			if (aborted) return;
 			raw += c;
-			if (raw.length > 1_000_000) reject(new Error("payload too large"));
-		});
-		req.on("end", () => {
-			try {
-				resolve(raw ? (JSON.parse(raw) as T) : ({} as T));
-			} catch (err) {
-				reject(err);
+			if (raw.length > MAX_BODY_BYTES) {
+				aborted = true;
+				// Stop reading and drop the connection so a hostile client can't keep
+				// streaming past the cap; the handler maps this to a 413.
+				req.destroy();
+				reject(new PayloadTooLargeError());
 			}
 		});
-		req.on("error", reject);
+		req.on("end", () => {
+			if (aborted) return;
+			try {
+				resolve(raw ? (JSON.parse(raw) as T) : ({} as T));
+			} catch {
+				reject(new BadJsonError());
+			}
+		});
+		req.on("error", (err) => {
+			if (!aborted) reject(err);
+		});
 	});
 }
 
@@ -442,6 +471,22 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 
 			return send(res, 404, { error: "not found" });
 		} catch (err) {
+			if (err instanceof PayloadTooLargeError) {
+				// The socket was already torn down in readJson; this 413 is best-effort
+				// (a mid-upload client typically sees the reset instead) and must not
+				// throw on the dead socket.
+				if (!res.headersSent && res.writable) {
+					try {
+						return send(res, 413, { error: err.message });
+					} catch {
+						return;
+					}
+				}
+				return;
+			}
+			if (err instanceof BadJsonError) {
+				return send(res, 400, { error: err.message });
+			}
 			return send(res, 500, { error: err instanceof Error ? err.message : String(err) });
 		}
 	});

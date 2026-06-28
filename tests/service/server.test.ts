@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import * as http from "node:http";
 import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -108,6 +109,81 @@ describe("control server", () => {
 		});
 		expect(res.status).toBe(200);
 		expect(saved?.metered).toBe(true);
+	});
+
+	it("POST /api/pause pauses transfers and persists the flag", async () => {
+		const base = await start();
+		const res = await fetch(`${base}/api/pause`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({ on: true }),
+		});
+		expect(res.status).toBe(200);
+		expect((await res.json()) as { paused: boolean }).toEqual({ ok: true, paused: true });
+		expect(saved?.metered).toBe(true);
+	});
+});
+
+describe("control server hardening", () => {
+	it("returns 401 for a POST with the wrong token", async () => {
+		const base = await start();
+		const res = await fetch(`${base}/api/toggle`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": "wrong" },
+			body: JSON.stringify({ target: "claude-config", on: false }),
+		});
+		expect(res.status).toBe(401);
+	});
+
+	it("returns 401 on GET /api/events with a bad SSE token", async () => {
+		const base = await start();
+		const res = await fetch(`${base}/api/events?token=wrong`);
+		expect(res.status).toBe(401);
+	});
+
+	it("returns 404 for an unknown route (fall-through)", async () => {
+		const base = await start();
+		const res = await fetch(`${base}/api/does-not-exist`, { headers: { "X-Ccsync-Token": TOKEN } });
+		expect(res.status).toBe(404);
+	});
+
+	it("returns 400 for a malformed JSON body", async () => {
+		const base = await start();
+		const res = await fetch(`${base}/api/toggle`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: "{ not json ",
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it("rejects an oversize body: caps the read and destroys the socket", async () => {
+		const base = await start();
+		const { port } = new URL(base);
+		// A >1MB body trips the cap; readJson calls req.destroy() so a mid-upload
+		// client observes a torn-down socket rather than a 200. (The best-effort 413
+		// rarely reaches the client because it is still streaming the body.)
+		const outcome = await new Promise<{ status?: number; errored: boolean }>((resolve) => {
+			const req = http.request(
+				{
+					host: "127.0.0.1",
+					port: Number(port),
+					method: "POST",
+					path: "/api/toggle",
+					headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+				},
+				(res) => {
+					res.resume();
+					resolve({ status: res.statusCode, errored: false });
+				},
+			);
+			req.on("error", () => resolve({ errored: true }));
+			req.write("x".repeat(2_000_000));
+			req.end();
+		});
+		// Either a 413 was delivered or the socket was destroyed — never a 200 success.
+		expect(outcome.errored || outcome.status === 413).toBe(true);
+		expect(outcome.status).not.toBe(200);
 	});
 });
 

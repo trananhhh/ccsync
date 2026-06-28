@@ -25,6 +25,29 @@ export interface State {
 	metered: boolean;
 	peers: Peer[];
 	buckets: Bucket[];
+	/** False on a fresh machine → the SPA shows the onboarding wizard. */
+	configured: boolean;
+	/** Whether the Syncthing binary is on PATH (wizard step 1 gating). */
+	syncthingInstalled: boolean;
+	/** True while this machine is auto-accepting a freshly issued invite. */
+	pairing: boolean;
+}
+
+export interface BrowseEntry {
+	name: string;
+	path: string;
+	isDir: true;
+}
+
+export interface BrowseResult {
+	path: string;
+	parent: string | null;
+	entries: BrowseEntry[];
+}
+
+export interface PairInvite {
+	token: string;
+	command: string;
 }
 
 /** The realtime SSE payload. Mirrors the FROZEN server `MonitorState` contract. */
@@ -100,4 +123,34 @@ export interface HandoffResult {
 
 export function handoffRelease(timeoutMs?: number): Promise<HandoffResult> {
 	return post("/api/handoff/release", timeoutMs ? { timeoutMs } : {});
+}
+
+/** List the immediate subdirectories of `path` (home root when omitted). */
+export async function browseFolders(path?: string): Promise<BrowseResult> {
+	const qs = path ? `?path=${encodeURIComponent(path)}` : "";
+	const res = await fetch(`/api/folders/browse${qs}`);
+	if (!res.ok) {
+		const body = (await res.json().catch(() => ({}))) as { error?: string };
+		throw new Error(body.error ?? `GET /api/folders/browse failed: ${res.status}`);
+	}
+	return (await res.json()) as BrowseResult;
+}
+
+export interface SetupInitInput {
+	machineName: string;
+	codeRoot?: string;
+	codeFolders?: string[];
+	buckets?: Record<string, boolean>;
+}
+
+export function setupInit(input: SetupInitInput): Promise<{ ok: boolean; configured: boolean }> {
+	return post("/api/setup/init", input);
+}
+
+export function pairInvite(): Promise<PairInvite> {
+	return post("/api/pair/invite", {});
+}
+
+export function pairJoin(token: string, localRoot?: string): Promise<{ ok: boolean }> {
+	return post("/api/pair/join", { token, localRoot });
 }

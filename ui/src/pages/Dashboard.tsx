@@ -1,9 +1,12 @@
+import { Plus } from "lucide-react";
 import { useState } from "react";
+import { AddMachineDialog } from "@/components/AddMachineDialog";
 import { BucketList } from "@/components/BucketList";
 import { ConflictsPanel } from "@/components/ConflictsPanel";
 import { HandoffButton } from "@/components/HandoffButton";
 import { MeteredButton } from "@/components/MeteredButton";
 import { StatusBar } from "@/components/StatusBar";
+import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
 import { useEventSource } from "@/hooks/useEventSource";
 import { type MonitorState, type State, eventsUrl, getState, setMetered, toggleBucket } from "@/lib/api";
@@ -44,7 +47,16 @@ export function Dashboard({ initial }: { initial: State }) {
 		<main className="mx-auto max-w-2xl p-6 sm:p-8">
 			<header className="flex items-center justify-between">
 				<h1 className="text-2xl font-semibold tracking-tight text-slate-900">ccsync</h1>
-				<span className="text-sm text-slate-500">{cfg.machineName}</span>
+				<div className="flex items-center gap-3">
+					<AddMachineDialog
+						trigger={
+							<Button variant="outline" size="sm">
+								<Plus className="h-4 w-4" /> Add machine
+							</Button>
+						}
+					/>
+					<span className="text-sm text-slate-500">{cfg.machineName}</span>
+				</div>
 			</header>
 
 			<div className="mt-5">

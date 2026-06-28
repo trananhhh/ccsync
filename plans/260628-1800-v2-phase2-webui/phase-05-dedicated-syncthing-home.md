@@ -60,14 +60,16 @@ of the UI phases — can run in parallel.
 - `--fresh` / `fresh-reset.ts`: now wipes only `~/.ccsync` (which contains
   `syncthing/`); since it's ccsync-owned, relax the typed-confirm to a normal
   step. Still stop the daemon first.
-- **Migration (C1 — config rewrite, not a message):** on startup, if
-  `cfg.syncthing.homeDir` points at the legacy shared home (≠ `~/.ccsync/syncthing`),
-  run a real migration: stop the old daemon → `generate` a fresh home at
+- **Migration (C1 — config rewrite; validated: AUTO-on-next-run + confirm):** on the
+  next startup after upgrade, if `cfg.syncthing.homeDir` points at the legacy shared
+  home (≠ `~/.ccsync/syncthing`), AUTO-detect and prompt the user to confirm
+  migration (clearly stating it changes device identity + forces re-pair). On
+  confirm, run a real migration: stop the old daemon → `generate` a fresh home at
   `~/.ccsync/syncthing` (new identity) → probe+persist new port/apiKey/homeDir into
   `config.yaml` → re-bootstrap → warn the user clearly that device identity changed
   and they must re-pair (keep the invite-token flow for fast re-pair). Do NOT copy
-  old keys (no fragile identity migration). Gate behind a confirmation since it
-  forces re-pairing.
+  old keys (no fragile identity migration).
+  <!-- Updated: Validation Session 1 - migration = auto-detect on next run + confirm -->
 
 ## Related Code Files
 

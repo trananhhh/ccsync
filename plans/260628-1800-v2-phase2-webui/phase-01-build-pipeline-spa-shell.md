@@ -46,11 +46,15 @@ endpoints using the injected token.
   `startControlService` listens on port 0 (random each run), so `service-url`
   changes every invocation — this breaks the Vite dev `/api` proxy AND makes each
   `ccsync ui` spawn a fresh server + (Phase 2) a duplicate Syncthing events loop.
-  Fix here: bind a STABLE loopback port (fixed default, e.g. 41384, configurable;
-  fall back to probe if taken and persist to `service-url`). `ccsync ui` should
-  detect an already-running service (ping `service-url`) and just open the browser
-  at it instead of starting a second one. This is the foundation that keeps the
-  Phase 2 monitor a true singleton.
+  Fix here (validated decision): **probe a free loopback port ONCE on first start
+  and persist it to `~/.ccsync/service-url`; reuse that port on subsequent starts**
+  (re-probe only if the saved port is taken). No hardcoded default port (avoids
+  colliding with other apps). `ccsync ui` pings `service-url` first and, if a
+  service is already up, just opens the browser at it instead of starting a second
+  one. This keeps the Phase 2 monitor a true singleton and gives the Vite dev proxy
+  a stable target.
+  <!-- Updated: Validation Session 1 - service port = probe-once + persist (not fixed default) -->
+  Dev proxy: read the persisted `service-url`; if absent, friendly "run `ccsync ui` first".
 
 ## Related Code Files
 

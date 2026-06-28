@@ -104,3 +104,29 @@ blocking gaps; all reconciled in the phase files:
   side-effect + exitCode stay in the CLI; abort on request close; no 300s block.
 - Nits: stable service port + reuse-running-service (Phase 1), token-inject
   fail-loud, SSE auth threat model recorded.
+
+## Validation Log
+
+### Session 1 (2026-06-29) — critical-questions interview
+
+Verification pass skipped: red-team already verified claims against code (see
+"Red-team pass"). 4 open decision points resolved:
+
+1. **Phase 5 migration UX** → AUTO-detect legacy home on next run + confirm prompt,
+   then rewrite config + warn re-pair. (Not a separate `migrate` command; not
+   "new machines only".) Propagated to phase-05.
+2. **Phase 4 auto-accept lifecycle** → accept the constraint that the inviting
+   machine keeps `ccsync ui`/service open during the invite window (dashboard shows
+   "waiting to join"). No always-on background daemon this phase (that's a possible
+   Phase 2.5). Already reflected in phase-04.
+3. **Phase 6 CLI** → KEEP `conflicts`/`release`/`diagnose` top-level (headless
+   escape hatches; UI is additive). Propagated to phase-06.
+4. **Phase 1 service port** → probe a free port ONCE + persist to `service-url`,
+   reuse thereafter (no hardcoded default). Propagated to phase-01.
+
+### Whole-Plan Consistency Sweep
+Re-read all phase files after propagation. No stale terms / contradictions:
+payload contract (frozen, `folders[].bucket`, no `activeMachine`) consistent across
+phase-02/03; migration is config-rewrite consistently in phase-05 + plan summary;
+port strategy consistent phase-01; CLI fate consistent phase-06. Zero unresolved
+contradictions.

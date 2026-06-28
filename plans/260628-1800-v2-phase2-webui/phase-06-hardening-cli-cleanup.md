@@ -34,11 +34,11 @@ test coverage gaps from the Phase 1 final review), tidy the CLI to the v2 model
   with a typed error; map malformed JSON → 400, oversize → 413 (instead of the
   catch-all 500). Keep the 1MB cap.
 - CLI (`src/cli/index.ts`): audit that all legacy commands sit under `advanced`
-  (most already do). Decide `conflicts`/`release`/`diagnose`: keep top-level as
-  power-user/headless escape hatches (recommended — the UI is additive, not a
-  replacement, and headless Linux servers have no browser) OR move under
-  `advanced`. Do NOT hard-delete anything. Keep `ccsync`,`ui`,`setup`,`status`,
-  `service` top-level.
+  (most already do). **Validated decision: KEEP `conflicts`/`release`/`diagnose`
+  top-level** as power-user/headless escape hatches (the UI is additive, not a
+  replacement; headless Linux servers have no browser). Do NOT hard-delete anything.
+  Keep `ccsync`,`ui`,`setup`,`status`,`service` top-level.
+  <!-- Updated: Validation Session 1 - keep conflicts/release/diagnose top-level -->
 - README: rewrite the quickstart around `ccsync` → wizard/dashboard; note
   `setup <token>` for headless; mention the dedicated Syncthing home.
 
@@ -53,7 +53,7 @@ test coverage gaps from the Phase 1 final review), tidy the CLI to the v2 model
 ## Implementation Steps
 
 1. Harden `readJson`: oversize → `req.destroy()` + 413; malformed JSON → 400; add the missing server tests (pause, 404, wrong-token, malformed, oversize).
-2. Audit `src/cli/index.ts` (advanced group already exists); decide + apply the fate of top-level `conflicts`/`release`/`diagnose` (recommend keep as headless escape hatches); verify `--help` output. No hard-deletes.
+2. Audit `src/cli/index.ts` (advanced group already exists); KEEP `conflicts`/`release`/`diagnose` top-level (validated); verify `--help` output. No hard-deletes.
 3. Update README to the v2 Web-UI-first flow + dedicated-home note.
 4. Full gate: `pnpm test`/`typecheck`/`lint`/`build` green; `ccsync --help` sane.
 

@@ -1,4 +1,5 @@
-import { readConfig, writeConfig } from "../../core/config-io.js";
+import { readConfig } from "../../core/config-io.js";
+import { applyAndSave } from "../../core/mutate.js";
 import { log } from "../../lib/log.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
 
@@ -19,8 +20,8 @@ export async function handleToggle(opts: ToggleOptions): Promise<void> {
 		return;
 	}
 	const next = opts.on ? true : opts.off ? false : !bucket.enabled;
-	bucket.enabled = next;
-	await writeConfig(cfgPath, cfg);
-	log.success(`Bucket ${opts.bucket} ${next ? "enabled" : "disabled"}`);
-	log.plain("Run `ccsync push` to apply.");
+	await applyAndSave(cfgPath, (c) => {
+		c.buckets[opts.bucket].enabled = next;
+	});
+	log.success(`Bucket ${opts.bucket} ${next ? "enabled" : "disabled"} and applied.`);
 }

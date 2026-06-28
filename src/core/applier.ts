@@ -3,9 +3,23 @@ import { findUnanchoredNegations } from "./ccsyncignore.js";
 import type { Bucket, Config } from "./config-schema.js";
 import { rootConversationPath, rootConversations } from "./root-profile.js";
 import { writeStignore } from "./stignore-writer.js";
-import { SyncthingApi } from "./syncthing-api.js";
+import { SyncthingApi, type SyncthingFolder } from "./syncthing-api.js";
 import { buildDevices, buildFolders } from "./syncthing-config.js";
 import { isLegacySingleFileBucketPath } from "./syncthing-folder-paths.js";
+
+export const CCSYNC_FOLDER_PREFIX = "ccsync-";
+
+export function isCcsyncFolder(id: string): boolean {
+	return id.startsWith(CCSYNC_FOLDER_PREFIX);
+}
+
+export function mergeFolders(
+	remote: SyncthingFolder[],
+	owned: SyncthingFolder[],
+): SyncthingFolder[] {
+	const foreign = remote.filter((f) => !isCcsyncFolder(f.id));
+	return [...foreign, ...owned];
+}
 
 export interface ApplyResult {
 	foldersConfigured: number;
@@ -32,7 +46,7 @@ export async function apply(cfg: Config): Promise<ApplyResult> {
 	const remote = await api.getConfig();
 	const merged = {
 		...remote,
-		folders,
+		folders: mergeFolders(remote.folders, folders),
 		devices,
 	};
 	await api.putConfig(merged);

@@ -1,8 +1,40 @@
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import { collectStignoreTargets } from "../../src/core/applier.js";
+import {
+	CCSYNC_FOLDER_PREFIX,
+	collectStignoreTargets,
+	isCcsyncFolder,
+	mergeFolders,
+} from "../../src/core/applier.js";
 import type { Config } from "../../src/core/config-schema.js";
 import { createRootProfile } from "../../src/core/root-profile.js";
+import type { SyncthingFolder } from "../../src/core/syncthing-api.js";
+
+function folder(id: string): SyncthingFolder {
+	return { id, label: id, path: `/tmp/${id}`, type: "sendreceive", devices: [] };
+}
+
+describe("mergeFolders", () => {
+	it("keeps foreign folders and replaces only ccsync-owned ones", () => {
+		const remote = [folder("user-photos"), folder("ccsync-claude-config-0")];
+		const owned = [folder("ccsync-claude-config-0"), folder("ccsync-root-abc")];
+		const merged = mergeFolders(remote, owned);
+		const ids = merged.map((f) => f.id).sort();
+		expect(ids).toEqual(["ccsync-claude-config-0", "ccsync-root-abc", "user-photos"]);
+	});
+
+	it("drops ccsync folders that are no longer owned", () => {
+		const remote = [folder("ccsync-stale-0"), folder("keep-me")];
+		const merged = mergeFolders(remote, []);
+		expect(merged.map((f) => f.id)).toEqual(["keep-me"]);
+	});
+
+	it("recognises every ccsync folder id prefix", () => {
+		expect(isCcsyncFolder("ccsync-conv-x")).toBe(true);
+		expect(isCcsyncFolder("user-photos")).toBe(false);
+		expect(CCSYNC_FOLDER_PREFIX).toBe("ccsync-");
+	});
+});
 
 describe("collectStignoreTargets", () => {
 	it("includes mapped conversation folders instead of the raw legacy conversations root", () => {

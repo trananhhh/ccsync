@@ -15,8 +15,10 @@
     "node": ">=20.17.0"
   },
   "scripts": {
-    "build": "tsup",
+    "build": "tsup && pnpm build:ui",
+    "build:ui": "pnpm -C ui build",
     "dev": "tsup --watch",
+    "dev:ui": "pnpm -C ui dev",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",

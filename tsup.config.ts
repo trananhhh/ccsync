@@ -7,7 +7,8 @@ export default defineConfig({
 	format: ["esm"],
 	target: "node20",
 	clean: true,
-	sourcemap: true,
+	// No source maps: the published tarball is dist/cli.js + dist/ui/** only.
+	sourcemap: false,
 	minify: false,
 	banner: {
 		js: "#!/usr/bin/env node",

@@ -1,5 +1,6 @@
 src/
 tests/
+ui/
 node_modules/
 coverage/
 *.log

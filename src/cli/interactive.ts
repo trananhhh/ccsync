@@ -10,11 +10,13 @@ import { consumeOne, createInvite, listInvites } from "../core/invite-store.js";
 import { encodeInvite } from "../core/invite-token.js";
 import { inviteRootProfile } from "../core/root-profile.js";
 import { SyncthingApi } from "../core/syncthing-api.js";
+import { bootstrapFreshHome, stopDaemon } from "../core/syncthing-bootstrap.js";
 import { buildFolders } from "../core/syncthing-config.js";
+import { migrateToDedicatedHome, needsMigration } from "../core/syncthing-migrate.js";
 import { fetchPending, type PendingMap } from "../core/syncthing-pending.js";
 import { log } from "../lib/log.js";
 import { isInteractive } from "../lib/prompt-or.js";
-import { ccsyncConfigPath } from "../platform/paths.js";
+import { ccsyncConfigPath, syncthingHome } from "../platform/paths.js";
 import { handleConflicts } from "./commands/conflicts.js";
 import { handleRelease } from "./commands/release.js";
 import { handleSetup } from "./commands/setup.js";
@@ -37,6 +39,8 @@ export async function runInteractive(): Promise<void> {
 		return;
 	}
 
+	if (await maybeMigrateLegacyHome(cfg)) return;
+
 	const api = new SyncthingApi({
 		apiKey: cfg.syncthing.apiKey,
 		guiAddress: cfg.syncthing.guiAddress,
@@ -56,6 +60,63 @@ export async function runInteractive(): Promise<void> {
 
 	await showDashboard(cfg, api);
 	await shortcutPrompt(cfg, api);
+}
+
+/**
+ * Legacy configs point `syncthing.homeDir` at the old shared platform-default
+ * home. Detect that on the next run and offer a clean re-pair migration onto the
+ * dedicated `~/.ccsync/syncthing` home — this changes the device identity, so
+ * the user is told plainly and given a fresh invite token to re-pair.
+ */
+async function maybeMigrateLegacyHome(cfg: Cfg): Promise<boolean> {
+	if (!cfg.syncthing) return false;
+	const dedicated = syncthingHome();
+	if (!needsMigration(cfg, dedicated)) return false;
+
+	log.plain("");
+	log.warn(
+		`ccsync now runs Syncthing from its own home (${dedicated}), separate from the shared Syncthing at ${cfg.syncthing.homeDir}.`,
+	);
+	log.warn(
+		"Migrating gives this machine a NEW device identity — you'll need to re-pair your other machines.",
+	);
+	const proceed = isInteractive()
+		? await confirm({ message: "Migrate now? (recommended)", default: true })
+		: false;
+	if (!proceed) {
+		log.plain("Skipped — ccsync keeps using the shared home until you migrate.");
+		return false;
+	}
+
+	const spinner = isInteractive()
+		? createSpinner("Migrating to a dedicated Syncthing home…").start()
+		: null;
+	const result = await migrateToDedicatedHome(cfg, dedicated, {
+		stopOldDaemon: async (guiAddress, apiKey) => {
+			await stopDaemon(guiAddress, apiKey);
+		},
+		bootstrapFresh: (homeDir) => bootstrapFreshHome(homeDir),
+		writeConfig: (next) => writeConfig(ccsyncConfigPath(), next),
+	});
+	spinner?.success({ text: "Migrated to a dedicated Syncthing home" });
+	spinner?.stop();
+
+	// Re-populate the fresh daemon with our buckets/peers.
+	await apply(cfg);
+
+	await createInvite();
+	const token = encodeInvite({
+		deviceId: result.deviceId,
+		name: cfg.machineName,
+		introducer: true,
+		rootProfile: cfg.rootProfile ? inviteRootProfile(cfg.rootProfile) : undefined,
+	});
+	log.plain("");
+	log.warn("Your device identity changed. Re-pair each other machine with this one-time token:");
+	console.log("");
+	console.log(`  ${pc.cyan(`npx @trananhhh/ccsync setup ${token}`)}`);
+	console.log("");
+	return true;
 }
 
 async function handlePending(cfg: Cfg, pending: PendingMap): Promise<void> {

@@ -46,7 +46,19 @@ Requires Node.js 20.17+. Syncthing is auto-detected on first run; if missing, `c
 ccsync
 ```
 
-The interactive flow:
+With no arguments `ccsync` does the right thing: on a brand-new machine it walks
+you through guided setup, and afterwards it drops you into a status dashboard.
+Prefer a browser? `ccsync ui` serves a local **web dashboard + onboarding
+wizard** (pairing, bucket toggles, conflict and handoff views) from the control
+service — no terminal UI required.
+
+> **Headless / no browser?** On a server with no display, skip the wizard
+> entirely: pair with a single command, `ccsync setup <token>` (see
+> [Second machine](#second-machine-and-third-fourth-)). Power-user escape
+> hatches stay on the CLI too — `ccsync status`, `conflicts`, `release`, and
+> `diagnose` all run headless.
+
+The guided flow:
 
 1. Verifies / installs Syncthing.
 2. Generates a ccsync config at `~/.ccsync/config.yaml`.
@@ -123,7 +135,8 @@ There is no "primary" host. Whoever you happen to be sitting at, when you want t
 ### Daily use
 
 ```bash
-ccsync                       # dashboard + shortcuts
+ccsync                       # guided setup, then terminal dashboard + shortcuts
+ccsync ui                    # open the web dashboard in your browser
 ccsync status                # quick sync status
 ccsync conflicts             # resolve file clashes
 ccsync release               # wait until 100% in sync before switching machines
@@ -157,7 +170,7 @@ ccsync diagnose              # deep dump — peers, folders, paths, hints
 
 `ccsync` is a thin orchestration layer on top of [Syncthing](https://syncthing.net/). It:
 
-- Reuses your **system's existing Syncthing identity** at the platform default state directory (`~/.local/state/syncthing` on Linux, `~/Library/Application Support/Syncthing` on macOS, `$XDG_STATE_HOME/syncthing` otherwise). Note: this means ccsync shares the Syncthing instance with anything else on the system — full isolation is on the long-term roadmap.
+- Runs a **dedicated Syncthing instance** out of its own home at `~/.ccsync/syncthing`, with its own device identity, GUI port, and API key. ccsync never touches a Syncthing you run yourself — the two stay fully isolated. (Configs from older ccsync versions that shared the platform-default Syncthing are detected on the next run and offered a one-time migration onto the dedicated home.)
 - Builds **stable Syncthing folder IDs** from a hash of `<bucket> + <root-profile-id> + <relative-path>` so adding a machine mid-stream is a no-op for existing peers.
 - Writes a **`.stignore` per folder** that combines a global hard-coded exclude list + bucket-level ignore + per-folder `.ccsyncignore` (forward-looking).
 - Translates **Claude Code conversation projects** between machines using the *canonical* (host) root as the anchor. The machine where you work from is the local root; the project identity follows the relative path.

@@ -109,6 +109,160 @@ describe("control server", () => {
 	});
 });
 
+describe("control server conflicts routes", () => {
+	let tmpDir: string | undefined;
+
+	afterEach(async () => {
+		if (tmpDir) {
+			await fs.rm(tmpDir, { recursive: true, force: true });
+			tmpDir = undefined;
+		}
+	});
+
+	async function startWithConflict(): Promise<{ base: string; conflictPath: string }> {
+		tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-conf-"));
+		const original = path.join(tmpDir, "notes.txt");
+		const conflictPath = path.join(tmpDir, "notes.sync-conflict-20260101-120000-ABCDEF.txt");
+		await fs.writeFile(original, "local");
+		await fs.writeFile(conflictPath, "remote");
+		const conflictCfg = {
+			...cfg(),
+			buckets: {
+				"claude-config": {
+					enabled: true,
+					paths: [tmpDir],
+					ignore: [],
+					versioning: { type: "simple", keep: 10 },
+				},
+			},
+		} as Config;
+		server = createControlServer({
+			token: TOKEN,
+			configPath: "/tmp/x.yaml",
+			apiFor: () => ({}) as unknown as SyncthingApi,
+			readConfig: async () => conflictCfg,
+		});
+		const base = await new Promise<string>((resolve) => {
+			server.listen(0, "127.0.0.1", () => {
+				const { port } = server.address() as AddressInfo;
+				resolve(`http://127.0.0.1:${port}`);
+			});
+		});
+		return { base, conflictPath };
+	}
+
+	it("GET /api/conflicts lists scanned conflict files", async () => {
+		const { base, conflictPath } = await startWithConflict();
+		const res = await fetch(`${base}/api/conflicts`);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { conflicts: Array<{ file: string; bucket: string }> };
+		expect(body.conflicts).toHaveLength(1);
+		expect(body.conflicts[0].file).toBe(conflictPath);
+		expect(body.conflicts[0].bucket).toBe("claude-config");
+	});
+
+	it("POST /api/conflicts/resolve rejects a missing token", async () => {
+		const { base, conflictPath } = await startWithConflict();
+		const res = await fetch(`${base}/api/conflicts/resolve`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({ file: conflictPath, action: "keep-local" }),
+		});
+		expect(res.status).toBe(401);
+	});
+
+	it("POST /api/conflicts/resolve keep-local removes the conflict copy", async () => {
+		const { base, conflictPath } = await startWithConflict();
+		const res = await fetch(`${base}/api/conflicts/resolve`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({ file: conflictPath, action: "keep-local" }),
+		});
+		expect(res.status).toBe(200);
+		await expect(fs.stat(conflictPath)).rejects.toBeTruthy();
+	});
+
+	it("POST /api/conflicts/resolve 404s for a path the scanner does not report", async () => {
+		const { base } = await startWithConflict();
+		const res = await fetch(`${base}/api/conflicts/resolve`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({ file: "/etc/passwd", action: "keep-local" }),
+		});
+		expect(res.status).toBe(404);
+	});
+});
+
+describe("control server handoff route", () => {
+	function startHandoff(opts: { needBytes: number; onRemoveLock?: () => void }): Promise<string> {
+		const handoffCfg = {
+			...cfg(),
+			syncthing: { apiKey: "k", guiAddress: "127.0.0.1:1", homeDir: "/tmp" },
+			buckets: {
+				"claude-config": {
+					enabled: true,
+					paths: ["/tmp/ccsync-handoff-path"],
+					ignore: [],
+					versioning: { type: "simple", keep: 10 },
+				},
+			},
+		} as Config;
+		server = createControlServer({
+			token: TOKEN,
+			configPath: "/tmp/x.yaml",
+			apiFor: () =>
+				({
+					systemStatus: async () => ({ myID: SELF_ID, uptime: 0, startTime: "" }),
+					folderStatus: async () => ({ needBytes: opts.needBytes, needFiles: 0 }),
+				}) as unknown as SyncthingApi,
+			readConfig: async () => handoffCfg,
+			removeActiveLock: async () => opts.onRemoveLock?.(),
+		});
+		return new Promise<string>((resolve) => {
+			server.listen(0, "127.0.0.1", () => {
+				const { port } = server.address() as AddressInfo;
+				resolve(`http://127.0.0.1:${port}`);
+			});
+		});
+	}
+
+	it("rejects a missing token", async () => {
+		const base = await startHandoff({ needBytes: 0 });
+		const res = await fetch(`${base}/api/handoff/release`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(401);
+	});
+
+	it("reports synced and releases the lock when nothing is pending", async () => {
+		let removed = false;
+		const base = await startHandoff({ needBytes: 0, onRemoveLock: () => (removed = true) });
+		const res = await fetch(`${base}/api/handoff/release`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(200);
+		expect((await res.json()) as { status: string }).toEqual({ status: "synced" });
+		expect(removed).toBe(true);
+	});
+
+	it("reports pending without releasing the lock while a folder still needs bytes", async () => {
+		let removed = false;
+		const base = await startHandoff({ needBytes: 100, onRemoveLock: () => (removed = true) });
+		const res = await fetch(`${base}/api/handoff/release`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({ timeoutMs: 1000 }),
+		});
+		expect(res.status).toBe(200);
+		expect((await res.json()) as { status: string }).toEqual({ status: "pending" });
+		expect(removed).toBe(false);
+	});
+});
+
 describe("control server metered integration (real apply round-trip)", () => {
 	let tmpDir: string | undefined;
 	let integrationServer: ReturnType<typeof createControlServer> | undefined;

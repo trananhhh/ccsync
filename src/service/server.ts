@@ -1,9 +1,13 @@
 import * as http from "node:http";
+import { removeActiveLock as defaultRemoveActiveLock } from "../cli/commands/claim.js";
 import { readConfig as defaultReadConfig } from "../core/config-io.js";
 import type { Config } from "../core/config-schema.js";
+import { type ConflictAction, findConflicts, resolveConflict } from "../core/conflicts-scanner.js";
 import { applyAndSave as defaultApplyAndSave } from "../core/mutate.js";
 import { applyPause as defaultApplyPause } from "../core/sync-control.js";
 import { SyncthingApi } from "../core/syncthing-api.js";
+import { buildFolders } from "../core/syncthing-config.js";
+import { waitUntilSynced } from "./handoff.js";
 import { openSse } from "./sse.js";
 import type { MonitorState } from "./sync-monitor.js";
 
@@ -19,6 +23,7 @@ export interface ControlServerDeps {
 	readConfig?: typeof defaultReadConfig;
 	applyAndSave?: typeof defaultApplyAndSave;
 	applyPause?: typeof defaultApplyPause;
+	removeActiveLock?: typeof defaultRemoveActiveLock;
 }
 
 interface ToggleBody {
@@ -31,6 +36,24 @@ interface MeteredBody {
 interface PauseBody {
 	scope: "all";
 	on: boolean;
+}
+interface ResolveBody {
+	file: string;
+	action: ConflictAction;
+}
+interface HandoffBody {
+	timeoutMs?: number;
+}
+
+const RESOLVE_ACTIONS: readonly ConflictAction[] = ["keep-local", "keep-remote", "skip"];
+
+/** Per-request handoff wait budget; the SPA re-polls until 100% in-sync. */
+const HANDOFF_WINDOW_MS = 8000;
+const HANDOFF_MIN_MS = 1000;
+const HANDOFF_MAX_MS = 30_000;
+
+function clamp(n: number, lo: number, hi: number): number {
+	return Math.min(hi, Math.max(lo, n));
 }
 
 function readJson<T>(req: http.IncomingMessage): Promise<T> {
@@ -61,6 +84,7 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 	const read = deps.readConfig ?? defaultReadConfig;
 	const applyAndSaveFn = deps.applyAndSave ?? defaultApplyAndSave;
 	const applyPauseFn = deps.applyPause ?? defaultApplyPause;
+	const removeLock = deps.removeActiveLock ?? defaultRemoveActiveLock;
 
 	return http.createServer(async (req, res) => {
 		const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -95,6 +119,19 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 						name,
 						enabled: b.enabled,
 						paths: b.paths,
+					})),
+				});
+			}
+
+			if (req.method === "GET" && url.pathname === "/api/conflicts") {
+				const cfg = await read(deps.configPath);
+				const conflicts = await findConflicts(cfg);
+				return send(res, 200, {
+					conflicts: conflicts.map((c) => ({
+						file: c.path,
+						original: c.original,
+						bucket: c.bucket,
+						isHistoryFile: c.isHistoryFile,
 					})),
 				});
 			}
@@ -140,6 +177,60 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 					{ api },
 				);
 				return send(res, 200, { ok: true, paused: body.on });
+			}
+
+			if (req.method === "POST" && url.pathname === "/api/conflicts/resolve") {
+				const body = await readJson<ResolveBody>(req);
+				if (!RESOLVE_ACTIONS.includes(body.action)) {
+					return send(res, 400, { error: `invalid action: ${body.action}` });
+				}
+				const cfg = await read(deps.configPath);
+				// Resolve only files the scanner currently reports — never act on an
+				// arbitrary path from the request, which would be an unlink primitive.
+				const match = (await findConflicts(cfg)).find((c) => c.path === body.file);
+				if (!match) {
+					return send(res, 404, { error: "conflict not found" });
+				}
+				await resolveConflict(match, body.action);
+				return send(res, 200, { ok: true, file: body.file, action: body.action });
+			}
+
+			if (req.method === "POST" && url.pathname === "/api/handoff/release") {
+				const body = await readJson<HandoffBody>(req);
+				const cfg = await read(deps.configPath);
+				if (!cfg.syncthing) {
+					return send(res, 503, { error: "config.syncthing not initialised" });
+				}
+				const api = deps.apiFor(cfg);
+				const sys = await api.systemStatus();
+				const folders = buildFolders({
+					machineName: cfg.machineName,
+					myDeviceId: sys.myID,
+					buckets: cfg.buckets,
+					peers: cfg.peers,
+					rootProfile: cfg.rootProfile,
+				});
+
+				// Bounded, abortable wait so the request never hangs for the full
+				// handoff budget: each call waits a short window and the SPA re-polls.
+				// Closing the tab aborts the loop instead of leaving it running.
+				const controller = new AbortController();
+				req.on("close", () => controller.abort());
+				const result = await waitUntilSynced(
+					{ api, folderIds: folders.map((f) => f.id) },
+					{
+						timeoutMs: clamp(body.timeoutMs ?? HANDOFF_WINDOW_MS, HANDOFF_MIN_MS, HANDOFF_MAX_MS),
+						signal: controller.signal,
+					},
+				);
+				if (res.writableEnded) return; // client disconnected mid-wait
+
+				if (result === "synced") {
+					await removeLock();
+					return send(res, 200, { status: "synced" });
+				}
+				// Still pending (or the wait was aborted by a closed tab handled above).
+				return send(res, 200, { status: "pending" });
 			}
 
 			return send(res, 404, { error: "not found" });

@@ -1,3 +1,5 @@
+import * as os from "node:os";
+import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { Bucket } from "../../src/core/config-schema.js";
 import { bucketToFolders, buildDevices, buildFolders } from "../../src/core/syncthing-config.js";
@@ -61,6 +63,27 @@ describe("bucketToFolders", () => {
 		};
 		const out = bucketToFolders("x", b, [ID_A]);
 		expect(out[0].versioning).toEqual({ type: "staggered", params: { keep: "30" } });
+	});
+
+	it("skips known legacy single-file paths because Syncthing folders must be directories", () => {
+		const home = os.homedir();
+		const claude = path.join(home, ".claude");
+		const b: Bucket = {
+			enabled: true,
+			paths: [
+				path.join(claude, "agents"),
+				path.join(claude, "settings.json"),
+				path.join(claude, "CLAUDE.md"),
+				path.join(home, ".zsh_history"),
+			],
+			ignore: [],
+			versioning: { type: "simple", keep: 5 },
+		};
+
+		const out = bucketToFolders("claude-config", b, [ID_A]);
+
+		expect(out.map((folder) => folder.path)).toEqual([path.join(claude, "agents")]);
+		expect(out[0].id).toBe("ccsync-claude-config-0");
 	});
 });
 

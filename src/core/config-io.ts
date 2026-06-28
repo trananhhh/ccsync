@@ -1,12 +1,17 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { parse, stringify } from "yaml";
+import { withDefaultBuckets } from "./buckets-default.js";
 import { type Config, ConfigSchema } from "./config-schema.js";
 
 export async function readConfig(configPath: string): Promise<Config> {
 	const raw = await fs.readFile(configPath, "utf-8");
 	const parsed = parse(raw);
-	return ConfigSchema.parse(parsed);
+	const cfg = ConfigSchema.parse(parsed);
+	return {
+		...cfg,
+		buckets: withDefaultBuckets(cfg.buckets),
+	};
 }
 
 export async function writeConfig(configPath: string, config: Config): Promise<void> {

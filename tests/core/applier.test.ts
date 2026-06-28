@@ -69,4 +69,28 @@ describe("collectStignoreTargets", () => {
 		expect(codeRootTarget?.codeFolderRoot).toBe(codeRootTarget?.folderPath);
 		expect(claudeConfigTarget?.codeFolderRoot).toBeUndefined();
 	});
+
+	it("skips legacy single-file paths when collecting .stignore targets", () => {
+		const cfg: Config = {
+			machineName: "macbook",
+			peers: [],
+			globalIgnore: [],
+			buckets: {
+				"claude-config": {
+					enabled: true,
+					paths: [
+						path.normalize(`${process.env.HOME}/.claude/agents`),
+						path.normalize(`${process.env.HOME}/.claude/settings.json`),
+						path.normalize(`${process.env.HOME}/.claude/CLAUDE.md`),
+					],
+					ignore: [],
+					versioning: { type: "simple", keep: 5 },
+				},
+			},
+		};
+
+		expect(collectStignoreTargets(cfg).map((target) => target.folderPath)).toEqual([
+			path.normalize(`${process.env.HOME}/.claude/agents`),
+		]);
+	});
 });

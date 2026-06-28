@@ -15,9 +15,6 @@ export const DEFAULT_BUCKETS: Record<string, Bucket> = {
 			path.join(claude, "rules"),
 			path.join(claude, "skills"),
 			path.join(claude, "output-styles"),
-			path.join(claude, "settings.json"),
-			path.join(claude, "CLAUDE.md"),
-			path.join(claude, "keybindings.json"),
 		],
 		ignore: ["*.log", "*.lock", "*.bak-*"],
 		versioning: { type: "simple", keep: 10 },
@@ -26,6 +23,17 @@ export const DEFAULT_BUCKETS: Record<string, Bucket> = {
 		enabled: true,
 		paths: [path.join(claude, "projects")],
 		ignore: ["*.tmp"],
+		versioning: { type: "simple", keep: 5 },
+	},
+	"claude-agent-state": {
+		enabled: true,
+		paths: [
+			path.join(claude, "tasks"),
+			path.join(claude, "jobs"),
+			path.join(claude, "session-env"),
+			path.join(claude, "file-history"),
+		],
+		ignore: ["*.tmp", "*.lock"],
 		versioning: { type: "simple", keep: 5 },
 	},
 	"claude-worktrees": {
@@ -42,11 +50,7 @@ export const DEFAULT_BUCKETS: Record<string, Bucket> = {
 	},
 	"shell-history": {
 		enabled: false,
-		paths: [
-			path.join(home, ".zsh_history"),
-			path.join(home, ".bash_history"),
-			path.join(claude, "history.jsonl"),
-		],
+		paths: [],
 		ignore: [],
 		versioning: { type: "simple", keep: 10 },
 	},
@@ -78,5 +82,12 @@ export function withCodeRootBucket(
 			enabled: paths.length > 0,
 			paths,
 		},
+	};
+}
+
+export function withDefaultBuckets(buckets: Record<string, Bucket>): Record<string, Bucket> {
+	return {
+		...DEFAULT_BUCKETS,
+		...buckets,
 	};
 }

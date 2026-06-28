@@ -18,9 +18,14 @@ const BUCKET_LABELS: BucketChoice[] = [
 	{
 		key: "claude-config",
 		label: "Claude config",
-		hint: "agents, commands, hooks, rules, skills, settings, CLAUDE.md",
+		hint: "agents, commands, hooks, rules, skills, output styles",
 	},
 	{ key: "claude-conversations", label: "Conversations", hint: "~/.claude/projects/" },
+	{
+		key: "claude-agent-state",
+		label: "Background agents",
+		hint: "~/.claude/tasks, jobs, session-env, file-history",
+	},
 	{ key: "claude-worktrees", label: "Worktrees", hint: "~/.claude/worktrees/" },
 	{
 		key: "claude-plugins",
@@ -30,7 +35,7 @@ const BUCKET_LABELS: BucketChoice[] = [
 	{
 		key: "shell-history",
 		label: "Shell history",
-		hint: ".zsh_history, .bash_history, Claude history.jsonl",
+		hint: "single-file sync pending; kept off",
 	},
 ];
 

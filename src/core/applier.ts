@@ -5,6 +5,7 @@ import { rootConversationPath, rootConversations } from "./root-profile.js";
 import { writeStignore } from "./stignore-writer.js";
 import { SyncthingApi } from "./syncthing-api.js";
 import { buildDevices, buildFolders } from "./syncthing-config.js";
+import { isLegacySingleFileBucketPath } from "./syncthing-folder-paths.js";
 
 export interface ApplyResult {
 	foldersConfigured: number;
@@ -93,6 +94,7 @@ export function collectStignoreTargets(cfg: Config): StignoreTarget[] {
 			continue;
 		}
 		for (const folderPath of bucket.paths) {
+			if (isLegacySingleFileBucketPath(folderPath)) continue;
 			targets.push({
 				folderPath,
 				bucket,

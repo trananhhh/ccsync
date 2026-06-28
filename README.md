@@ -70,11 +70,12 @@ Discovered 4 code folders under /Users/alice/work:
   [✓] web
 
 What to sync?
-  [✓] Claude config (agents, commands, hooks, rules, skills, settings, CLAUDE.md)
+  [✓] Claude config (agents, commands, hooks, rules, skills, output styles)
   [✓] Conversations  (~/.claude/projects/)
+  [✓] Background agents (~/.claude/tasks, jobs, session-env, file-history)
   [✓] Worktrees      (~/.claude/worktrees/)
   [ ] Plugins        (reproducible from marketplace)
-  [ ] Shell history
+  [ ] Shell history  (single-file mirror pending)
 
 ✓ Root profile configured: /Users/alice/work
 ✓ Mapped 3 Claude conversation project(s)
@@ -145,8 +146,8 @@ ccsync diagnose              # deep dump — peers, folders, paths, hints
 +--------------------+        +--------------------+
 
   ~/.claude/                    ~/.claude/
-    ├── settings.json  ◀═══════▶   ├── settings.json
     ├── skills/*        ◀═══════▶   ├── skills/*
+    ├── jobs/*          ◀═══════▶   ├── jobs/*
     └── projects/                  └── projects/
          -Users-alice-work-           -Users-bob-Coding-
          ccsync     ◀═══════▶            ccsync
@@ -191,13 +192,16 @@ Buckets are named groups of paths sharing one ignore list + one versioning polic
 
 | Bucket                 | Default | What it syncs                                                                 |
 | ---------------------- | :-----: | ------------------------------------------------------------------------------ |
-| `claude-config`        | on      | `~/.claude/{agents,commands,hooks,rules,skills,output-styles,settings.json,CLAUDE.md,keybindings.json}` |
+| `claude-config`        | on      | `~/.claude/{agents,commands,hooks,rules,skills,output-styles}`                         |
 | `claude-conversations` | on      | `~/.claude/projects/` — but mapped per machine via the root profile            |
+| `claude-agent-state`   | on      | `~/.claude/{tasks,jobs,session-env,file-history}` for `claude agents --all`     |
 | `claude-worktrees`     | on      | `~/.claude/worktrees/`                                                        |
 | `claude-plugins`       | off     | `~/.claude/plugins/` — cache is intentionally not synced                       |
-| `shell-history`        | off     | `~/.zsh_history`, `~/.bash_history`, `~/.claude/history.jsonl`                 |
+| `shell-history`        | off     | Pending a safe single-file mirror; Syncthing folder roots must be directories  |
 | `code-root`            | on      | The selected workspace root, scoped to `codeFolders[]`                        |
 | `active-projects`      | legacy  | Older per-project bucket — superseded by `code-root`                          |
+
+See [docs/sync-decisions-and-findings.md](docs/sync-decisions-and-findings.md) for the current decisions, smoke-test findings, and known gaps behind these buckets.
 
 Toggle at runtime:
 

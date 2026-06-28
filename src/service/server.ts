@@ -5,15 +5,15 @@ import * as path from "node:path";
 import { removeActiveLock as defaultRemoveActiveLock } from "../cli/commands/claim.js";
 import { apply as defaultApply } from "../core/applier.js";
 import { watchAndAutoAccept } from "../core/auto-accept.js";
-import { DEFAULT_BUCKETS, withCodeRootBucket } from "../core/buckets-default.js";
+import { bootstrapFirstMachine } from "../core/bootstrap-machine.js";
+import { withCodeRootBucket } from "../core/buckets-default.js";
 import { detectClaudeConversationsForRoot } from "../core/claude-projects.js";
 import {
 	readConfig as defaultReadConfig,
 	writeConfig as defaultWriteConfig,
 } from "../core/config-io.js";
-import { type Config, ConfigSchema } from "../core/config-schema.js";
+import type { Config } from "../core/config-schema.js";
 import { type ConflictAction, findConflicts, resolveConflict } from "../core/conflicts-scanner.js";
-import { GLOBAL_IGNORE_PATTERNS } from "../core/ignores-default.js";
 import { createInvite as defaultCreateInvite } from "../core/invite-store.js";
 import { encodeInvite } from "../core/invite-token.js";
 import { joinWithToken as defaultJoinWithToken } from "../core/join.js";
@@ -28,7 +28,6 @@ import {
 import { buildFolders } from "../core/syncthing-config.js";
 import { which } from "../lib/exec.js";
 import { ensureSyncthing as defaultEnsureSyncthing } from "../platform/installer.js";
-import { syncthingHome } from "../platform/paths.js";
 import { browseDirectory } from "./folders.js";
 import { waitUntilSynced } from "./handoff.js";
 import { openSse } from "./sse.js";
@@ -62,6 +61,13 @@ export interface ControlServerDeps {
 	detectSyncthing?: () => Promise<boolean>;
 	/** Confinement root for the folder browser; defaults to the user's home. */
 	homeRoot?: string;
+	/**
+	 * Lazily constructs and starts the SSE monitor once a config exists. Called
+	 * after a runtime config-create (setup/init or a fresh-machine join) so
+	 * `/api/events` stops returning 503 without a service restart. Idempotent —
+	 * returns the already-running monitor on repeat calls.
+	 */
+	ensureMonitor?: () => Promise<StateMonitor | undefined>;
 }
 
 interface ToggleBody {
@@ -155,6 +161,24 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 	const bootstrapFreshHomeFn = deps.bootstrapFreshHome ?? defaultBootstrapFreshHome;
 	const detectSyncthingFn = deps.detectSyncthing ?? (async () => Boolean(await which("syncthing")));
 
+	// The SSE monitor is mutable: a fresh machine boots without one (no config),
+	// and a runtime config-create lazily starts it via `deps.ensureMonitor` so
+	// `/api/events` stops 503ing without a service restart. `ensureMonitorOnce`
+	// dedupes concurrent callers so we never start two monitors.
+	let monitor = deps.monitor;
+	let ensureMonitorInFlight: Promise<void> | undefined;
+	function ensureMonitorOnce(): Promise<void> {
+		if (monitor || !deps.ensureMonitor) return Promise.resolve();
+		if (!ensureMonitorInFlight) {
+			ensureMonitorInFlight = (async () => {
+				monitor = (await deps.ensureMonitor?.()) ?? monitor;
+			})().finally(() => {
+				ensureMonitorInFlight = undefined;
+			});
+		}
+		return ensureMonitorInFlight;
+	}
+
 	// Tracks the in-process auto-accept watcher started by `POST /api/pair/invite`.
 	// `pairingUntil` drives the dashboard's "waiting for a machine to join…" badge
 	// and expires by time; `watcherRunning` dedupes the loop so a second invite in
@@ -188,11 +212,11 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 			if (url.searchParams.get("token") !== deps.token) {
 				return send(res, 401, { error: "unauthorized" });
 			}
-			if (!deps.monitor) {
+			if (!monitor) {
 				return send(res, 503, { error: "monitor unavailable" });
 			}
 			const conn = openSse(req, res);
-			const unsubscribe = deps.monitor.subscribe((state) => conn.send("state", state));
+			const unsubscribe = monitor.subscribe((state) => conn.send("state", state));
 			req.on("close", unsubscribe);
 			return;
 		}
@@ -316,6 +340,9 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 			if (req.method === "POST" && url.pathname === "/api/setup/init") {
 				const body = await readJson<SetupInitBody>(req);
 				const result = await runSetupInit(body);
+				// Config now exists — start the live feed so the dashboard the wizard
+				// lands on shows throughput immediately, not after a restart.
+				await ensureMonitorOnce();
 				return send(res, 200, result);
 			}
 
@@ -348,11 +375,30 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 				if (!body.token) {
 					return send(res, 400, { error: "token is required" });
 				}
+				// A fresh machine pasting a token in the wizard has NO config yet, so
+				// joinWithToken's readConfig would ENOENT. Bootstrap a dedicated
+				// Syncthing identity first (same core as create-first), persist it, then
+				// join — the join now reads the just-written config and applies.
+				const existing = await read(deps.configPath).catch(() => undefined);
+				if (!existing?.syncthing) {
+					const base = await bootstrapFirstMachine({
+						ensureSyncthing: ensureSyncthingFn,
+						bootstrapFreshHome: bootstrapFreshHomeFn,
+					});
+					await writeConfigFn(deps.configPath, base);
+				}
 				// `localRoot` comes from wizard step 4 — joinWithToken NEVER prompts.
 				const result = await joinWithTokenFn(body.token, {
 					localRoot: body.localRoot,
 					configPath: deps.configPath,
+					readConfig: read,
+					writeConfig: writeConfigFn,
+					apply: applyFn,
+					ensureSyncthing: ensureSyncthingFn,
+					ensureDaemonRunning: ensureDaemonRunningFn,
 				});
+				// Config now exists (and has a peer) — start the live feed.
+				await ensureMonitorOnce();
 				return send(res, 200, { ok: true, result });
 			}
 
@@ -415,16 +461,10 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 			cfg = existing;
 			if (body.machineName) cfg.machineName = body.machineName;
 		} else {
-			const install = await ensureSyncthingFn();
-			if (!install.installed) throw new Error(install.message);
-			const stHome = syncthingHome();
-			const identity = await bootstrapFreshHomeFn(stHome);
-			cfg = ConfigSchema.parse({
-				machineName: body.machineName || os.hostname(),
-				syncthing: { apiKey: identity.apiKey, guiAddress: identity.guiAddress, homeDir: stHome },
-				peers: [],
-				buckets: DEFAULT_BUCKETS,
-				globalIgnore: GLOBAL_IGNORE_PATTERNS,
+			cfg = await bootstrapFirstMachine({
+				machineName: body.machineName,
+				ensureSyncthing: ensureSyncthingFn,
+				bootstrapFreshHome: bootstrapFreshHomeFn,
 			});
 		}
 

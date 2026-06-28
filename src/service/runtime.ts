@@ -105,7 +105,25 @@ export async function startControlService(
 		monitor.start();
 	}
 
-	const control = createControlServer({ token, configPath, apiFor: apiFromConfig, monitor });
+	// Lazily start the monitor once a config is written at runtime (browser
+	// onboarding creates one on a fresh machine), so the SSE feed comes alive
+	// without restarting the service. Idempotent — returns the running monitor.
+	async function ensureMonitor(): Promise<SyncMonitor | undefined> {
+		if (monitor) return monitor;
+		const fresh = await readConfig(configPath).catch(() => undefined);
+		if (!fresh?.syncthing) return undefined;
+		monitor = new SyncMonitor({ api: apiFromConfig(fresh), configPath });
+		monitor.start();
+		return monitor;
+	}
+
+	const control = createControlServer({
+		token,
+		configPath,
+		apiFor: apiFromConfig,
+		monitor,
+		ensureMonitor,
+	});
 
 	const uiDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui");
 	const serveStatic = createStaticHandler({ uiDir, token });

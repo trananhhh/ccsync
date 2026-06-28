@@ -3,10 +3,11 @@ import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { writeConfig } from "../../src/core/config-io.js";
+import { readConfig, writeConfig } from "../../src/core/config-io.js";
 import type { Config } from "../../src/core/config-schema.js";
 import { encodeInvite } from "../../src/core/invite-token.js";
 import type { SyncthingApi, SyncthingConfig } from "../../src/core/syncthing-api.js";
+import type { StateMonitor } from "../../src/service/server.js";
 import { type ControlServerDeps, createControlServer } from "../../src/service/server.js";
 
 const SELF_ID = "AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA";
@@ -257,6 +258,129 @@ describe("control server pairing + browse routes", () => {
 		const base = await startPair({ homeRoot: tmpHome });
 		const res = await fetch(`${base}/api/folders/browse?path=${encodeURIComponent("/etc")}`);
 		expect(res.status).toBe(400);
+	});
+});
+
+describe("control server fresh-machine bootstrap + lazy monitor", () => {
+	let bootServer: ReturnType<typeof createControlServer> | undefined;
+	let tmpDir: string | undefined;
+
+	afterEach(async () => {
+		if (bootServer) {
+			await new Promise<void>((r) => bootServer?.close(() => r()));
+			bootServer = undefined;
+		}
+		if (tmpDir) {
+			await fs.rm(tmpDir, { recursive: true, force: true });
+			tmpDir = undefined;
+		}
+		vi.restoreAllMocks();
+	});
+
+	function fakeMonitor(): StateMonitor {
+		return { subscribe: () => () => {} };
+	}
+
+	// Fakes for the side-effectful bootstrap primitives so the test exercises the
+	// REAL no-config → bootstrap → join wiring without installing Syncthing or
+	// starting a daemon. readConfig/writeConfig stay real against a temp path, so
+	// the ENOENT is genuine — not mocked away.
+	function bootDeps(configPath: string, overrides: Partial<ControlServerDeps>): ControlServerDeps {
+		const applied: Config[] = [];
+		return {
+			token: TOKEN,
+			configPath,
+			apiFor: () => ({}) as unknown as SyncthingApi,
+			ensureSyncthing: async () => ({
+				installed: true,
+				path: "/usr/bin/syncthing",
+				message: "ok",
+			}),
+			bootstrapFreshHome: async () => ({
+				apiKey: "fresh-key",
+				guiAddress: "127.0.0.1:18888",
+				deviceId: PEER_ID,
+				pid: 1234,
+			}),
+			apply: async (c: Config) => {
+				applied.push(c);
+				return { foldersConfigured: 1, devicesConfigured: 1, stignoresWritten: 0 };
+			},
+			ensureDaemonRunning: async () => "already-running" as const,
+			detectSyncthing: async () => true,
+			...overrides,
+		};
+	}
+
+	function listen(server: ReturnType<typeof createControlServer>): Promise<string> {
+		return new Promise<string>((resolve) => {
+			server.listen(0, "127.0.0.1", () => {
+				const { port } = server.address() as AddressInfo;
+				resolve(`http://127.0.0.1:${port}`);
+			});
+		});
+	}
+
+	async function eventsStatus(base: string): Promise<number> {
+		const ctrl = new AbortController();
+		try {
+			const res = await fetch(`${base}/api/events?token=${TOKEN}`, { signal: ctrl.signal });
+			return res.status;
+		} finally {
+			ctrl.abort();
+		}
+	}
+
+	it("browser join on a fresh machine bootstraps a config then joins (ENOENT not mocked)", async () => {
+		tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-fresh-"));
+		const configPath = path.join(tmpDir, "config.yaml");
+		const ensureMonitor = vi.fn(async () => fakeMonitor());
+		bootServer = createControlServer(bootDeps(configPath, { ensureMonitor }));
+		const base = await listen(bootServer);
+
+		// No config yet → the live feed is unavailable.
+		expect(await eventsStatus(base)).toBe(503);
+
+		const token = encodeInvite({ deviceId: PEER_ID, name: "host", introducer: true });
+		const res = await fetch(`${base}/api/pair/join`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({ token }),
+		});
+		expect(res.status).toBe(200);
+
+		// A real config was written: bootstrapped Syncthing identity + the inviter peer.
+		const written = await readConfig(configPath);
+		expect(written.syncthing?.apiKey).toBe("fresh-key");
+		expect(written.peers.map((p) => p.deviceId)).toContain(PEER_ID);
+
+		// The monitor was lazily started → /api/events stops 503ing.
+		expect(ensureMonitor).toHaveBeenCalled();
+		expect(await eventsStatus(base)).toBe(200);
+	});
+
+	it("create-first via setup/init starts the monitor so the live feed comes alive", async () => {
+		tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-init-"));
+		const configPath = path.join(tmpDir, "config.yaml");
+		const ensureMonitor = vi.fn(async () => fakeMonitor());
+		bootServer = createControlServer(bootDeps(configPath, { ensureMonitor }));
+		const base = await listen(bootServer);
+
+		expect(await eventsStatus(base)).toBe(503);
+
+		const res = await fetch(`${base}/api/setup/init`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({ machineName: "fresh-mac" }),
+		});
+		expect(res.status).toBe(200);
+
+		const written = await readConfig(configPath);
+		expect(written.machineName).toBe("fresh-mac");
+		expect(written.syncthing?.apiKey).toBe("fresh-key");
+
+		expect(ensureMonitor).toHaveBeenCalled();
+		expect(await eventsStatus(base)).toBe(200);
 	});
 });
 

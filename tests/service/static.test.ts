@@ -1,12 +1,34 @@
 import * as fs from "node:fs/promises";
 import * as http from "node:http";
 import type { AddressInfo } from "node:net";
+import * as net from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createStaticHandler, mimeFor, renderIndex } from "../../src/service/static.js";
 
 const TOKEN = "deadbeef0123456789abcdef";
+
+// Send a raw request line so a literal path (with `..` or a malformed escape)
+// reaches the server unmodified — fetch() normalises/encodes these away.
+function rawRequest(port: number, rawPath: string): Promise<{ status: number; body: string }> {
+	return new Promise((resolve, reject) => {
+		const sock = net.connect(port, "127.0.0.1", () => {
+			sock.write(`GET ${rawPath} HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n`);
+		});
+		let raw = "";
+		sock.setEncoding("utf-8");
+		sock.on("data", (c) => {
+			raw += c;
+		});
+		sock.on("error", reject);
+		sock.on("end", () => {
+			const status = Number(raw.match(/^HTTP\/1\.1 (\d{3})/)?.[1] ?? 0);
+			const body = raw.slice(raw.indexOf("\r\n\r\n") + 4);
+			resolve({ status, body });
+		});
+	});
+}
 
 describe("renderIndex", () => {
 	it("injects the token right after <head>", () => {
@@ -85,13 +107,30 @@ describe("createStaticHandler", () => {
 		expect(await res.text()).toContain("window.__CCSYNC_TOKEN__");
 	});
 
-	it("blocks path traversal", async () => {
-		const res = await fetch(`${base}/../../etc/hosts`, { redirect: "manual" });
-		// fetch may normalise the URL; assert we never leak a file outside the root.
-		expect([403, 404, 200].includes(res.status)).toBe(true);
-		if (res.status === 200) {
-			expect(res.headers.get("content-type")).toContain("text/html");
+	it("blocks path traversal that escapes the ui root", async () => {
+		// A secret one level above the served root. Encoding both the dots and the
+		// slash (%2e%2e%2f) keeps the `..` segment past WHATWG URL normalisation, so
+		// only the handler's own guard can stop it; a raw socket keeps the literal
+		// path that fetch() would have rewritten.
+		const secret = path.join(os.tmpdir(), `ccsync-secret-${process.pid}-${Date.now()}.txt`);
+		await fs.writeFile(secret, "TOP-SECRET");
+		try {
+			const port = (server.address() as AddressInfo).port;
+			const res = await rawRequest(port, `/%2e%2e%2f${path.basename(secret)}`);
+			expect(res.status).toBe(403);
+			expect(res.body).not.toContain("TOP-SECRET");
+		} finally {
+			await fs.rm(secret, { force: true });
 		}
+	});
+
+	it("returns 400 on a malformed percent-escape without crashing the server", async () => {
+		const port = (server.address() as AddressInfo).port;
+		const res = await rawRequest(port, "/%E0%A4%A");
+		expect(res.status).toBe(400);
+		// The server is still alive — a normal request after the bad one succeeds.
+		const ok = await fetch(`${base}/`);
+		expect(ok.status).toBe(200);
 	});
 
 	it("throws at construction when index.html lacks <head>", async () => {

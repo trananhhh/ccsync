@@ -81,7 +81,17 @@ export function createStaticHandler(opts: { uiDir: string; token: string }): Sta
 
 	return (req, res) => {
 		const pathname = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
-		const decoded = decodeURIComponent(pathname);
+		let decoded: string;
+		try {
+			// Malformed percent-escapes (e.g. `/%` or `/%E0%A4%A`) throw URIError;
+			// the request callback has no try/catch, so an uncaught throw here would
+			// crash the dashboard process. Reject with 400 instead.
+			decoded = decodeURIComponent(pathname);
+		} catch {
+			res.writeHead(400, { "Content-Type": "text/plain; charset=utf-8" });
+			res.end("bad request");
+			return;
+		}
 
 		if (decoded === "/" || decoded === "/index.html") {
 			sendIndex(res);

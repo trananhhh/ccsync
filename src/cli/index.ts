@@ -16,11 +16,13 @@ import {
 } from "./commands/project.js";
 import { handlePush } from "./commands/push.js";
 import { handleRelease } from "./commands/release.js";
+import { handleServiceStart, handleServiceStop } from "./commands/service.js";
 import { handleSetup } from "./commands/setup.js";
 import { handleShare } from "./commands/share.js";
 import { handleStatus } from "./commands/status.js";
 import { handleSync } from "./commands/sync.js";
 import { handleToggle } from "./commands/toggle.js";
+import { handleUi } from "./commands/ui.js";
 import { runInteractive } from "./interactive.js";
 import { CLI_VERSION } from "./version.js";
 
@@ -69,6 +71,12 @@ program
 	.description("Wait until 100% in-sync, then it's safe to switch machines")
 	.option("--timeout <seconds>", "max seconds to wait (default 300)", "300")
 	.action(handleRelease);
+
+program.command("ui").description("Open the ccsync dashboard in your browser").action(handleUi);
+
+const service = program.command("service").description("Manage the Syncthing daemon");
+service.command("start").description("Start the Syncthing daemon").action(handleServiceStart);
+service.command("stop").description("Stop the Syncthing daemon").action(handleServiceStop);
 
 const advanced = program.command("advanced").description("Advanced / low-level commands");
 

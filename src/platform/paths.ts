@@ -13,13 +13,14 @@ export function ccsyncLockPath(): string {
 	return path.join(ccsyncHome(), "active.lock");
 }
 
+/**
+ * ccsync's dedicated Syncthing home. Lives inside `~/.ccsync` so ccsync never
+ * touches the platform-default Syncthing a user may run themselves. This is the
+ * DEFAULT used when bootstrapping a fresh home; at runtime ccsync trusts
+ * `config.yaml`'s `syncthing.homeDir`, which legacy configs migrate onto this.
+ */
 export function syncthingHome(): string {
-	const xdg = process.env.XDG_STATE_HOME;
-	if (xdg) return path.join(xdg, "syncthing");
-	if (process.platform === "darwin") {
-		return path.join(os.homedir(), "Library", "Application Support", "Syncthing");
-	}
-	return path.join(os.homedir(), ".local", "state", "syncthing");
+	return path.join(ccsyncHome(), "syncthing");
 }
 
 export function claudeHome(): string {

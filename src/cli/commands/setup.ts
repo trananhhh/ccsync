@@ -26,15 +26,14 @@ import {
 } from "../../core/root-profile.js";
 import { SyncthingApi } from "../../core/syncthing-api.js";
 import {
+	bootstrapFreshHome,
 	ensureDaemonRunning,
-	generateHome,
-	readIdentity,
 	stopDaemon,
 } from "../../core/syncthing-bootstrap.js";
 import { log } from "../../lib/log.js";
 import { isInteractive } from "../../lib/prompt-or.js";
 import { ensureSyncthing } from "../../platform/installer.js";
-import { ccsyncConfigPath, syncthingHome } from "../../platform/paths.js";
+import { ccsyncConfigPath, ccsyncHome, syncthingHome } from "../../platform/paths.js";
 import { pickClaudeConfigPaths } from "../claude-config-picker.js";
 import { pickBuckets, pickCodeFolders } from "../wizard.js";
 import { handleJoin } from "./join.js";
@@ -48,20 +47,18 @@ export interface SetupOptions {
 export async function handleSetup(opts: SetupOptions): Promise<void> {
 	const cfgPath = ccsyncConfigPath();
 	if (opts.fresh) {
-		const home = syncthingHome();
+		const home = ccsyncHome();
 		if (isInteractive()) {
 			const proceed = await confirm({
-				message: `\`--fresh\` will DELETE the Syncthing home at ${home} (device identity + ALL Syncthing folders, including any not managed by ccsync). Continue?`,
-				default: false,
+				message: `\`--fresh\` resets ccsync: it deletes ccsync's own state at ${home} (config + ccsync's Syncthing identity/folders) and runs setup again. Your files and any non-ccsync Syncthing are untouched. Continue?`,
+				default: true,
 			});
 			if (!proceed) {
 				log.plain("Aborted.");
 				return;
 			}
 		} else {
-			log.warn(
-				`--fresh is deleting the Syncthing home at ${home} (device identity + ALL Syncthing folders).`,
-			);
+			log.step(`Resetting ccsync state at ${home}…`);
 		}
 		log.step("Resetting local ccsync config…");
 		let stop: (() => Promise<void>) | undefined;
@@ -114,8 +111,9 @@ async function bootstrap(machineName?: string): Promise<void> {
 		? createSpinner("Bootstrapping Syncthing identity…").start()
 		: null;
 	if (!spinner) log.step("Bootstrapping Syncthing identity…");
-	await generateHome(stHome);
-	const identity = await readIdentity(stHome);
+	// Probes a free loopback port, writes it into the dedicated home, and starts
+	// the daemon — so ccsync never collides with a user's own Syncthing on 8384.
+	const identity = await bootstrapFreshHome(stHome);
 	spinner?.success({ text: "Syncthing identity ready" });
 	spinner?.stop();
 
@@ -127,8 +125,6 @@ async function bootstrap(machineName?: string): Promise<void> {
 		globalIgnore: GLOBAL_IGNORE_PATTERNS,
 	});
 	await writeConfig(ccsyncConfigPath(), cfg);
-
-	await ensureConfiguredDaemon();
 }
 
 async function configureBuckets(): Promise<void> {

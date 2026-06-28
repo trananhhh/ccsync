@@ -30,6 +30,7 @@ describe("findConflicts", () => {
 				test: { enabled: true, paths: [tmp], ignore: [], versioning: { type: "simple", keep: 5 } },
 			},
 			globalIgnore: [],
+			metered: false,
 		};
 		const conflicts = await findConflicts(cfg);
 		expect(conflicts).toHaveLength(2);
@@ -44,6 +45,7 @@ describe("findConflicts", () => {
 				test: { enabled: false, paths: [tmp], ignore: [], versioning: { type: "simple", keep: 5 } },
 			},
 			globalIgnore: [],
+			metered: false,
 		};
 		expect(await findConflicts(cfg)).toEqual([]);
 	});
@@ -57,6 +59,7 @@ describe("findConflicts", () => {
 				test: { enabled: true, paths: [tmp], ignore: [], versioning: { type: "simple", keep: 5 } },
 			},
 			globalIgnore: [],
+			metered: false,
 		};
 		const conflicts = await findConflicts(cfg);
 		expect(conflicts).toHaveLength(1);

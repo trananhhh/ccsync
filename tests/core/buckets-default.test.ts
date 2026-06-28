@@ -7,6 +7,7 @@ describe("DEFAULT_BUCKETS", () => {
 		const expected = [
 			"claude-config",
 			"claude-conversations",
+			"claude-agent-state",
 			"claude-worktrees",
 			"claude-plugins",
 			"shell-history",
@@ -19,6 +20,29 @@ describe("DEFAULT_BUCKETS", () => {
 	it("has plugins and shell-history disabled by default for safety", () => {
 		expect(DEFAULT_BUCKETS["claude-plugins"].enabled).toBe(false);
 		expect(DEFAULT_BUCKETS["shell-history"].enabled).toBe(false);
+	});
+
+	it("syncs Claude background agent registry by default", () => {
+		const bucket = DEFAULT_BUCKETS["claude-agent-state"];
+		expect(bucket.enabled).toBe(true);
+		expect(bucket.paths).toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/\.claude[/\\]tasks$/),
+				expect.stringMatching(/\.claude[/\\]jobs$/),
+				expect.stringMatching(/\.claude[/\\]session-env$/),
+				expect.stringMatching(/\.claude[/\\]file-history$/),
+			]),
+		);
+	});
+
+	it("does not register standalone Claude config files as Syncthing folder roots", () => {
+		expect(DEFAULT_BUCKETS["claude-config"].paths).not.toEqual(
+			expect.arrayContaining([
+				expect.stringMatching(/\.claude[/\\]settings\.json$/),
+				expect.stringMatching(/\.claude[/\\]CLAUDE\.md$/),
+				expect.stringMatching(/\.claude[/\\]keybindings\.json$/),
+			]),
+		);
 	});
 
 	it("has active-projects with empty paths by default", () => {
@@ -43,6 +67,6 @@ describe("DEFAULT_BUCKETS", () => {
 			machineName: "test",
 			buckets: DEFAULT_BUCKETS,
 		});
-		expect(Object.keys(cfg.buckets).length).toBe(7);
+		expect(Object.keys(cfg.buckets).length).toBe(8);
 	});
 });

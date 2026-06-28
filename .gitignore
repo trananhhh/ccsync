@@ -8,3 +8,5 @@ coverage/
 .claude/
 .serena/
 .code-review-graph/
+
+.superpowers/

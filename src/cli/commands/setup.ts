@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { input } from "@inquirer/prompts";
+import { confirm, input } from "@inquirer/prompts";
 import { createSpinner } from "nanospinner";
 import { apply } from "../../core/applier.js";
 import { DEFAULT_BUCKETS, withCodeRootBucket } from "../../core/buckets-default.js";
@@ -25,7 +25,12 @@ import {
 	suggestRootFromProjects,
 } from "../../core/root-profile.js";
 import { SyncthingApi } from "../../core/syncthing-api.js";
-import { ensureDaemonRunning, generateHome, readIdentity } from "../../core/syncthing-bootstrap.js";
+import {
+	ensureDaemonRunning,
+	generateHome,
+	readIdentity,
+	stopDaemon,
+} from "../../core/syncthing-bootstrap.js";
 import { log } from "../../lib/log.js";
 import { isInteractive } from "../../lib/prompt-or.js";
 import { ensureSyncthing } from "../../platform/installer.js";
@@ -43,8 +48,37 @@ export interface SetupOptions {
 export async function handleSetup(opts: SetupOptions): Promise<void> {
 	const cfgPath = ccsyncConfigPath();
 	if (opts.fresh) {
+		const home = syncthingHome();
+		if (isInteractive()) {
+			const proceed = await confirm({
+				message: `\`--fresh\` will DELETE the Syncthing home at ${home} (device identity + ALL Syncthing folders, including any not managed by ccsync). Continue?`,
+				default: false,
+			});
+			if (!proceed) {
+				log.plain("Aborted.");
+				return;
+			}
+		} else {
+			log.warn(
+				`--fresh is deleting the Syncthing home at ${home} (device identity + ALL Syncthing folders).`,
+			);
+		}
 		log.step("Resetting local ccsync config…");
-		await resetCcsyncState();
+		let stop: (() => Promise<void>) | undefined;
+		if (await configExists(cfgPath)) {
+			try {
+				const existing = await readConfig(cfgPath);
+				if (existing.syncthing) {
+					const { guiAddress, apiKey } = existing.syncthing;
+					stop = async () => {
+						await stopDaemon(guiAddress, apiKey);
+					};
+				}
+			} catch {
+				// unreadable config — skip the daemon stop, still clean up
+			}
+		}
+		await resetCcsyncState(undefined, stop ? { stop } : {});
 	}
 	if (!(await configExists(cfgPath))) {
 		await bootstrap(opts.machineName);

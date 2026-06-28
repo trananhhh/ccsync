@@ -72,3 +72,43 @@ export async function isDaemonRunning(guiAddress: string): Promise<boolean> {
 		return false;
 	}
 }
+
+async function postShutdown(guiAddress: string, apiKey: string): Promise<boolean> {
+	const addr = guiAddress.startsWith("http") ? guiAddress : `http://${guiAddress}`;
+	try {
+		const res = await fetch(`${addr}/rest/system/shutdown`, {
+			method: "POST",
+			headers: { "X-API-Key": apiKey },
+		});
+		return res.ok;
+	} catch {
+		return false;
+	}
+}
+
+export interface StopDaemonOptions {
+	post?: (guiAddress: string, apiKey: string) => Promise<boolean>;
+	check?: (guiAddress: string) => Promise<boolean>;
+	timeoutMs?: number;
+	pollMs?: number;
+}
+
+export async function stopDaemon(
+	guiAddress: string,
+	apiKey: string,
+	opts: StopDaemonOptions = {},
+): Promise<"stopped" | "not-running" | "timeout"> {
+	const check = opts.check ?? isDaemonRunning;
+	const post = opts.post ?? postShutdown;
+	if (!(await check(guiAddress))) return "not-running";
+
+	const accepted = await post(guiAddress, apiKey);
+	if (!accepted) return "timeout";
+	const deadline = Date.now() + (opts.timeoutMs ?? 10_000);
+	const pollMs = opts.pollMs ?? 300;
+	while (Date.now() < deadline) {
+		if (!(await check(guiAddress))) return "stopped";
+		await new Promise((resolve) => setTimeout(resolve, pollMs));
+	}
+	return "timeout";
+}

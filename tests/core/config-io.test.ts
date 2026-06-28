@@ -35,12 +35,37 @@ describe("config-io", () => {
 				},
 			},
 			globalIgnore: [],
+			metered: false,
 		};
 		await writeConfig(configPath, cfg);
 		expect(await configExists(configPath)).toBe(true);
 		const loaded = await readConfig(configPath);
 		expect(loaded.machineName).toBe("macbook-pro");
 		expect(loaded.buckets.test.paths).toEqual(["/tmp/foo"]);
+	});
+
+	it("adds missing default buckets when reading older configs", async () => {
+		const cfg: Config = {
+			machineName: "macbook-pro",
+			peers: [],
+			buckets: {
+				"claude-config": {
+					enabled: false,
+					paths: ["/custom/claude/agents"],
+					ignore: ["custom-ignore"],
+					versioning: { type: "simple", keep: 2 },
+				},
+			},
+			globalIgnore: [],
+			metered: false,
+		};
+		await writeConfig(configPath, cfg);
+
+		const loaded = await readConfig(configPath);
+
+		expect(loaded.buckets["claude-agent-state"].enabled).toBe(true);
+		expect(loaded.buckets["claude-config"].paths).toEqual(["/custom/claude/agents"]);
+		expect(loaded.buckets["claude-config"].ignore).toEqual(["custom-ignore"]);
 	});
 
 	it("rejects invalid config on read", async () => {

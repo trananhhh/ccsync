@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { ensureDaemonRunning } from "../../src/core/syncthing-bootstrap.js";
+import { ensureDaemonRunning, stopDaemon } from "../../src/core/syncthing-bootstrap.js";
 
 describe("ensureDaemonRunning", () => {
 	it("does not start Syncthing when the GUI API is already reachable", async () => {
@@ -44,5 +44,43 @@ describe("ensureDaemonRunning", () => {
 				start: async () => {},
 			}),
 		).rejects.toThrow(/did not become reachable/);
+	});
+});
+
+describe("stopDaemon", () => {
+	it("returns not-running when the daemon is already down", async () => {
+		const res = await stopDaemon("127.0.0.1:8384", "key", {
+			check: async () => false,
+		});
+		expect(res).toBe("not-running");
+	});
+
+	it("posts shutdown and waits until unreachable", async () => {
+		let posted = false;
+		let calls = 0;
+		const res = await stopDaemon("127.0.0.1:8384", "key", {
+			post: async () => {
+				posted = true;
+				return true;
+			},
+			check: async () => {
+				calls += 1;
+				return calls === 1; // running once, then down
+			},
+			pollMs: 1,
+			timeoutMs: 1000,
+		});
+		expect(posted).toBe(true);
+		expect(res).toBe("stopped");
+	});
+
+	it("returns timeout when the daemon stays reachable after shutdown", async () => {
+		const res = await stopDaemon("127.0.0.1:8384", "key", {
+			post: async () => true,
+			check: async () => true, // never goes down
+			pollMs: 1,
+			timeoutMs: 5,
+		});
+		expect(res).toBe("timeout");
 	});
 });

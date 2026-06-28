@@ -79,7 +79,12 @@ export class SyncthingApi {
 		this.base = addr.replace(/\/$/, "");
 	}
 
-	private async request<T>(method: string, pathname: string, body?: unknown): Promise<T> {
+	private async request<T>(
+		method: string,
+		pathname: string,
+		body?: unknown,
+		signal?: AbortSignal,
+	): Promise<T> {
 		const res = await fetch(`${this.base}${pathname}`, {
 			method,
 			headers: {
@@ -87,6 +92,7 @@ export class SyncthingApi {
 				"Content-Type": "application/json",
 			},
 			body: body === undefined ? undefined : JSON.stringify(body),
+			signal,
 		});
 		if (!res.ok) {
 			const text = await res.text().catch(() => "");
@@ -142,14 +148,19 @@ export class SyncthingApi {
 	 * only events newer than that id; `limit` (with no `since`) re-baselines to the
 	 * latest id after a daemon restart resets the event counter.
 	 */
-	async events(query: EventsQuery = {}): Promise<SyncthingEvent[]> {
+	async events(query: EventsQuery = {}, signal?: AbortSignal): Promise<SyncthingEvent[]> {
 		const params = new URLSearchParams();
 		if (query.since !== undefined) params.set("since", String(query.since));
 		if (query.timeout !== undefined) params.set("timeout", String(query.timeout));
 		if (query.events && query.events.length > 0) params.set("events", query.events.join(","));
 		if (query.limit !== undefined) params.set("limit", String(query.limit));
 		const qs = params.toString();
-		return this.request<SyncthingEvent[]>("GET", `/rest/events${qs ? `?${qs}` : ""}`);
+		return this.request<SyncthingEvent[]>(
+			"GET",
+			`/rest/events${qs ? `?${qs}` : ""}`,
+			undefined,
+			signal,
+		);
 	}
 
 	async ping(): Promise<boolean> {

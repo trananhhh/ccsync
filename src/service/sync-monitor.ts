@@ -2,7 +2,7 @@ import { readConfig as defaultReadConfig } from "../core/config-io.js";
 import type { Config } from "../core/config-schema.js";
 import { findConflicts } from "../core/conflicts-scanner.js";
 import type { SyncthingApi } from "../core/syncthing-api.js";
-import { bucketForFolderId } from "../core/syncthing-config.js";
+import { folderIdBucketMap } from "../core/syncthing-config.js";
 
 /** The realtime payload pushed to dashboard clients. FROZEN — Phase 3 binds verbatim. */
 export interface MonitorState {
@@ -86,12 +86,17 @@ export function deriveState(input: {
 	folders: FolderSample[];
 	conflicts: number;
 }): MonitorState {
+	// Build the id->bucket map once per derivation, not per folder (avoids O(folders^2)).
+	const bucketMap = folderIdBucketMap({
+		buckets: input.cfg.buckets,
+		rootProfile: input.cfg.rootProfile,
+	});
 	return {
 		throughput: input.throughput,
 		devices: input.devices,
 		folders: input.folders.map((f) => ({
 			id: f.id,
-			bucket: bucketForFolderId(f.id, input.cfg) ?? f.id,
+			bucket: bucketMap.get(f.id) ?? f.id,
 			label: f.label,
 			state: f.state,
 			completion: f.completion,
@@ -137,6 +142,7 @@ export class SyncMonitor {
 	private since = 0;
 	private running = false;
 	private loop: Promise<void> | undefined;
+	private controller: AbortController | undefined;
 
 	constructor(deps: SyncMonitorDeps) {
 		this.api = deps.api;
@@ -168,6 +174,9 @@ export class SyncMonitor {
 
 	async stop(): Promise<void> {
 		this.running = false;
+		// Cancel the in-flight long-poll so stop() resolves immediately instead of
+		// waiting out the ~30s server-side timeout.
+		this.controller?.abort();
 		await this.loop?.catch(() => {});
 		this.loop = undefined;
 		this.subscribers.clear();
@@ -179,15 +188,19 @@ export class SyncMonitor {
 	}
 
 	private async run(): Promise<void> {
+		this.controller = new AbortController();
 		await this.rebaseline();
 		await this.sampleAndEmit();
 		while (this.running) {
 			try {
-				const events = await this.api.events({
-					since: this.since,
-					timeout: this.eventTimeoutS,
-					events: [...MONITOR_EVENT_TYPES],
-				});
+				const events = await this.api.events(
+					{
+						since: this.since,
+						timeout: this.eventTimeoutS,
+						events: [...MONITOR_EVENT_TYPES],
+					},
+					this.controller.signal,
+				);
 				if (!this.running) break;
 				if (events.length === 0) continue;
 				if (isEventIdGap(this.since, events)) {
@@ -197,6 +210,8 @@ export class SyncMonitor {
 				}
 				await this.sampleAndEmit();
 			} catch {
+				// An AbortError here is the expected result of stop(); running is
+				// already false so we break without re-baselining.
 				if (!this.running) break;
 				await this.rebaseline();
 				await delay(this.reconnectDelayMs);

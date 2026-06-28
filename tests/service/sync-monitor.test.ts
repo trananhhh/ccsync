@@ -126,14 +126,26 @@ function fakeApi(opts: FakeApiOptions) {
 	];
 
 	const api = {
-		events: vi.fn(async (q: EventsQuery = {}): Promise<SyncthingEvent[]> => {
+		events: vi.fn(async (q: EventsQuery = {}, signal?: AbortSignal): Promise<SyncthingEvent[]> => {
 			eventsCalls.push(q);
 			if (scriptIndex < opts.eventsScript.length) {
 				return opts.eventsScript[scriptIndex++](q);
 			}
-			// Park: resolve quickly so the loop can observe stop() without spinning.
-			await new Promise((r) => setTimeout(r, 5));
-			return [];
+			// Park: a long-poll (with signal) blocks until aborted, mirroring a real
+			// Syncthing long-poll; an unsignalled rebaseline resolves [] quickly.
+			if (!signal) {
+				await new Promise((r) => setTimeout(r, 5));
+				return [];
+			}
+			return new Promise<SyncthingEvent[]>((_resolve, reject) => {
+				const abort = () => {
+					const err = new Error("aborted");
+					err.name = "AbortError";
+					reject(err);
+				};
+				if (signal.aborted) return abort();
+				signal.addEventListener("abort", abort, { once: true });
+			});
 		}),
 		getConfig: async (): Promise<SyncthingConfig> => ({
 			version: 1,
@@ -231,5 +243,37 @@ describe("SyncMonitor loop", () => {
 
 		await vi.waitFor(() => expect(limitCalls()).toBeGreaterThanOrEqual(2), { timeout: 1000 });
 		await monitor.stop();
+	});
+
+	it("stop() resolves promptly by aborting the in-flight long-poll", async () => {
+		// Only a baseline event; the loop then parks on a long-poll that resolves
+		// only when its AbortSignal fires. Without abort, stop() would hang.
+		const { api } = fakeApi({
+			eventsScript: [() => [{ id: 10, type: "Starting", time: "now" }]],
+		});
+		const monitor = new SyncMonitor({
+			api,
+			configPath: "/x",
+			readConfig: async () => baseConfig(),
+			countConflicts: async () => 0,
+			eventTimeoutS: 30, // a real long-poll would block this long
+			reconnectDelayMs: 5,
+		});
+
+		let emits = 0;
+		monitor.subscribe(() => {
+			emits += 1;
+		});
+		monitor.start();
+
+		await vi.waitFor(() => expect(emits).toBeGreaterThanOrEqual(1), { timeout: 1000 });
+		const emitsBeforeStop = emits;
+
+		const started = Date.now();
+		await monitor.stop();
+		// Resolves well under the 30s long-poll timeout because stop() aborts it.
+		expect(Date.now() - started).toBeLessThan(1000);
+		// No state is emitted after stop.
+		expect(emits).toBe(emitsBeforeStop);
 	});
 });

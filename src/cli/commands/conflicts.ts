@@ -1,7 +1,6 @@
-import * as fs from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { readConfig } from "../../core/config-io.js";
-import { findConflicts } from "../../core/conflicts-scanner.js";
+import { findConflicts, resolveConflict } from "../../core/conflicts-scanner.js";
 import { autoMergeFile } from "../../core/history-merge.js";
 import { log } from "../../lib/log.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
@@ -48,10 +47,10 @@ export async function handleConflicts(opts: ConflictsOptions): Promise<void> {
 				.trim()
 				.toLowerCase();
 			if (answer === "t") {
-				await fs.rename(c.path, c.original);
+				await resolveConflict(c, "keep-remote");
 				log.success(`Took remote for ${c.original}`);
 			} else if (answer === "k") {
-				await fs.unlink(c.path);
+				await resolveConflict(c, "keep-local");
 				log.success(`Kept local, removed conflict file`);
 			} else {
 				log.plain("Skipped");

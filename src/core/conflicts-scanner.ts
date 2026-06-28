@@ -9,6 +9,23 @@ export interface ConflictFile {
 	isHistoryFile: boolean;
 }
 
+export type ConflictAction = "keep-local" | "keep-remote" | "skip";
+
+/**
+ * Apply a resolution to a single conflict. Destructive: "keep-remote" overwrites
+ * the original with the remote copy, "keep-local" drops the remote copy, "skip"
+ * leaves both in place. Callers must confirm before invoking with a non-skip
+ * action — there is no undo.
+ */
+export async function resolveConflict(c: ConflictFile, action: ConflictAction): Promise<void> {
+	if (action === "keep-remote") {
+		await fs.rename(c.path, c.original);
+	} else if (action === "keep-local") {
+		await fs.unlink(c.path);
+	}
+	// "skip": intentionally no-op.
+}
+
 const CONFLICT_RE = /\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]+/;
 
 export async function findConflicts(cfg: Config): Promise<ConflictFile[]> {

@@ -5,9 +5,11 @@ import type { AddressInfo } from "node:net";
 import * as net from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import { readConfig } from "../core/config-io.js";
 import { ccsyncConfigPath, ccsyncHome } from "../platform/paths.js";
 import { apiFromConfig, createControlServer } from "./server.js";
 import { createStaticHandler } from "./static.js";
+import { SyncMonitor } from "./sync-monitor.js";
 import { ensureServiceToken } from "./token.js";
 
 export function serviceUrlFile(homeDir: string = ccsyncHome()): string {
@@ -93,7 +95,17 @@ export async function startControlService(
 ): Promise<{ url: string; close: () => Promise<void> }> {
 	const token = await ensureServiceToken();
 	const configPath = ccsyncConfigPath();
-	const control = createControlServer({ token, configPath, apiFor: apiFromConfig });
+
+	// One shared monitor drives the SSE feed for every client. Only start it when
+	// Syncthing is configured; without it the /api/events route returns 503.
+	const cfg = await readConfig(configPath).catch(() => undefined);
+	let monitor: SyncMonitor | undefined;
+	if (cfg?.syncthing) {
+		monitor = new SyncMonitor({ api: apiFromConfig(cfg), configPath });
+		monitor.start();
+	}
+
+	const control = createControlServer({ token, configPath, apiFor: apiFromConfig, monitor });
 
 	const uiDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "ui");
 	const serveStatic = createStaticHandler({ uiDir, token });
@@ -118,6 +130,9 @@ export async function startControlService(
 	if (opts.open) openBrowser(url);
 	return {
 		url,
-		close: () => new Promise<void>((resolve) => server.close(() => resolve())),
+		close: async () => {
+			await monitor?.stop();
+			await new Promise<void>((resolve) => server.close(() => resolve()));
+		},
 	};
 }

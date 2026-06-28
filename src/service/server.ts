@@ -4,11 +4,18 @@ import type { Config } from "../core/config-schema.js";
 import { applyAndSave as defaultApplyAndSave } from "../core/mutate.js";
 import { applyPause as defaultApplyPause } from "../core/sync-control.js";
 import { SyncthingApi } from "../core/syncthing-api.js";
+import { openSse } from "./sse.js";
+import type { MonitorState } from "./sync-monitor.js";
+
+export interface StateMonitor {
+	subscribe(fn: (state: MonitorState) => void): () => void;
+}
 
 export interface ControlServerDeps {
 	token: string;
 	configPath: string;
 	apiFor: (cfg: Config) => SyncthingApi;
+	monitor?: StateMonitor;
 	readConfig?: typeof defaultReadConfig;
 	applyAndSave?: typeof defaultApplyAndSave;
 	applyPause?: typeof defaultApplyPause;
@@ -61,6 +68,22 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 		if (isWrite && req.headers["x-ccsync-token"] !== deps.token) {
 			return send(res, 401, { error: "unauthorized" });
 		}
+
+		// SSE realtime feed. EventSource can't send headers, so the token rides in
+		// the query string; auth is checked here before the stream is opened.
+		if (req.method === "GET" && url.pathname === "/api/events") {
+			if (url.searchParams.get("token") !== deps.token) {
+				return send(res, 401, { error: "unauthorized" });
+			}
+			if (!deps.monitor) {
+				return send(res, 503, { error: "monitor unavailable" });
+			}
+			const conn = openSse(req, res);
+			const unsubscribe = deps.monitor.subscribe((state) => conn.send("state", state));
+			req.on("close", unsubscribe);
+			return;
+		}
+
 		try {
 			if (req.method === "GET" && url.pathname === "/api/state") {
 				const cfg = await read(deps.configPath);

@@ -25,7 +25,12 @@ import {
 	suggestRootFromProjects,
 } from "../../core/root-profile.js";
 import { SyncthingApi } from "../../core/syncthing-api.js";
-import { ensureDaemonRunning, generateHome, readIdentity } from "../../core/syncthing-bootstrap.js";
+import {
+	ensureDaemonRunning,
+	generateHome,
+	readIdentity,
+	stopDaemon,
+} from "../../core/syncthing-bootstrap.js";
 import { log } from "../../lib/log.js";
 import { isInteractive } from "../../lib/prompt-or.js";
 import { ensureSyncthing } from "../../platform/installer.js";
@@ -44,7 +49,21 @@ export async function handleSetup(opts: SetupOptions): Promise<void> {
 	const cfgPath = ccsyncConfigPath();
 	if (opts.fresh) {
 		log.step("Resetting local ccsync config…");
-		await resetCcsyncState();
+		let stop: (() => Promise<void>) | undefined;
+		if (await configExists(cfgPath)) {
+			try {
+				const existing = await readConfig(cfgPath);
+				if (existing.syncthing) {
+					const { guiAddress, apiKey } = existing.syncthing;
+					stop = async () => {
+						await stopDaemon(guiAddress, apiKey);
+					};
+				}
+			} catch {
+				// unreadable config — skip the daemon stop, still clean up
+			}
+		}
+		await resetCcsyncState(undefined, stop ? { stop } : {});
 	}
 	if (!(await configExists(cfgPath))) {
 		await bootstrap(opts.machineName);

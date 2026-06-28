@@ -97,17 +97,18 @@ export async function stopDaemon(
 	guiAddress: string,
 	apiKey: string,
 	opts: StopDaemonOptions = {},
-): Promise<"stopped" | "not-running"> {
+): Promise<"stopped" | "not-running" | "timeout"> {
 	const check = opts.check ?? isDaemonRunning;
 	const post = opts.post ?? postShutdown;
 	if (!(await check(guiAddress))) return "not-running";
 
-	await post(guiAddress, apiKey);
+	const accepted = await post(guiAddress, apiKey);
+	if (!accepted) return "timeout";
 	const deadline = Date.now() + (opts.timeoutMs ?? 10_000);
 	const pollMs = opts.pollMs ?? 300;
 	while (Date.now() < deadline) {
 		if (!(await check(guiAddress))) return "stopped";
 		await new Promise((resolve) => setTimeout(resolve, pollMs));
 	}
-	return "stopped";
+	return "timeout";
 }

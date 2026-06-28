@@ -22,5 +22,12 @@ export async function handleServiceStop(): Promise<void> {
 		return;
 	}
 	const result = await stopDaemon(cfg.syncthing.guiAddress, cfg.syncthing.apiKey);
-	log.success(`Syncthing daemon ${result}.`);
+	if (result === "stopped") {
+		log.success("Syncthing daemon stopped.");
+	} else if (result === "not-running") {
+		log.info("Syncthing daemon was not running.");
+	} else {
+		log.warn("Syncthing daemon did not stop within the timeout — it may still be running.");
+		process.exitCode = 1;
+	}
 }

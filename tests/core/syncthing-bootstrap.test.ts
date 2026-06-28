@@ -73,4 +73,14 @@ describe("stopDaemon", () => {
 		expect(posted).toBe(true);
 		expect(res).toBe("stopped");
 	});
+
+	it("returns timeout when the daemon stays reachable after shutdown", async () => {
+		const res = await stopDaemon("127.0.0.1:8384", "key", {
+			post: async () => true,
+			check: async () => true, // never goes down
+			pollMs: 1,
+			timeoutMs: 5,
+		});
+		expect(res).toBe("timeout");
+	});
 });

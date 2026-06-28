@@ -3,6 +3,7 @@ import { SyncthingApi } from "../../core/syncthing-api.js";
 import { buildFolders } from "../../core/syncthing-config.js";
 import { log } from "../../lib/log.js";
 import { ccsyncConfigPath } from "../../platform/paths.js";
+import { waitUntilSynced } from "../../service/handoff.js";
 import { removeActiveLock } from "./claim.js";
 
 export interface ReleaseOptions {
@@ -29,26 +30,22 @@ export async function handleRelease(opts: ReleaseOptions): Promise<void> {
 		rootProfile: cfg.rootProfile,
 	});
 
-	const deadline = Date.now() + Number.parseInt(opts.timeout, 10) * 1000;
 	log.step(`Waiting for ${folders.length} folder(s) to reach 100% in-sync…`);
 
-	while (Date.now() < deadline) {
-		let pending = 0;
-		for (const folder of folders) {
-			try {
-				const s = await api.folderStatus(folder.id);
-				if (s.needFiles > 0 || s.needBytes > 0) pending++;
-			} catch {
-				pending++;
-			}
-		}
-		if (pending === 0) {
-			await removeActiveLock();
-			log.success("READY TO SWITCH — all buckets in sync, lock released");
-			return;
-		}
-		log.plain(`  ${pending} folder(s) still pending…`);
-		await new Promise((r) => setTimeout(r, 3000));
+	const result = await waitUntilSynced(
+		{ api, folderIds: folders.map((f) => f.id) },
+		{
+			timeoutMs: Number.parseInt(opts.timeout, 10) * 1000,
+			onProgress: (pending) => {
+				if (pending > 0) log.plain(`  ${pending} folder(s) still pending…`);
+			},
+		},
+	);
+
+	if (result === "synced") {
+		await removeActiveLock();
+		log.success("READY TO SWITCH — all buckets in sync, lock released");
+		return;
 	}
 	log.error("Timed out waiting for sync — not safe to switch yet");
 	process.exitCode = 1;

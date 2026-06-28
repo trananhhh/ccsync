@@ -2,11 +2,12 @@ import * as fs from "node:fs/promises";
 import type { AddressInfo } from "node:net";
 import * as os from "node:os";
 import * as path from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { writeConfig } from "../../src/core/config-io.js";
 import type { Config } from "../../src/core/config-schema.js";
+import { encodeInvite } from "../../src/core/invite-token.js";
 import type { SyncthingApi, SyncthingConfig } from "../../src/core/syncthing-api.js";
-import { createControlServer } from "../../src/service/server.js";
+import { type ControlServerDeps, createControlServer } from "../../src/service/server.js";
 
 const SELF_ID = "AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA";
 const PEER_ID = "BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB";
@@ -106,6 +107,156 @@ describe("control server", () => {
 		});
 		expect(res.status).toBe(200);
 		expect(saved?.metered).toBe(true);
+	});
+});
+
+describe("control server pairing + browse routes", () => {
+	let pairServer: ReturnType<typeof createControlServer> | undefined;
+	let tmpHome: string | undefined;
+
+	afterEach(async () => {
+		if (pairServer) {
+			await new Promise<void>((r) => pairServer?.close(() => r()));
+			pairServer = undefined;
+		}
+		if (tmpHome) {
+			await fs.rm(tmpHome, { recursive: true, force: true });
+			tmpHome = undefined;
+		}
+		vi.restoreAllMocks();
+	});
+
+	function pairCfg(): Config {
+		return {
+			machineName: "host",
+			syncthing: { apiKey: "k", guiAddress: "127.0.0.1:1", homeDir: "/tmp/st" },
+			peers: [],
+			buckets: {},
+			globalIgnore: [],
+			metered: false,
+		} as Config;
+	}
+
+	function startPair(overrides: Partial<ControlServerDeps>): Promise<string> {
+		pairServer = createControlServer({
+			token: TOKEN,
+			configPath: "/tmp/x.yaml",
+			apiFor: () =>
+				({
+					systemStatus: async () => ({ myID: SELF_ID, uptime: 0, startTime: "" }),
+				}) as unknown as SyncthingApi,
+			readConfig: async () => pairCfg(),
+			detectSyncthing: async () => true,
+			...overrides,
+		});
+		return new Promise<string>((resolve) => {
+			pairServer?.listen(0, "127.0.0.1", () => {
+				const { port } = pairServer?.address() as AddressInfo;
+				resolve(`http://127.0.0.1:${port}`);
+			});
+		});
+	}
+
+	it("GET /api/state reports configured + syncthingInstalled + pairing", async () => {
+		const base = await startPair({
+			readConfig: async () => pairCfg(),
+			detectSyncthing: async () => true,
+		});
+		const res = await fetch(`${base}/api/state`);
+		const body = (await res.json()) as {
+			configured: boolean;
+			syncthingInstalled: boolean;
+			pairing: boolean;
+		};
+		// syncthing present but no peers/rootProfile yet → not configured.
+		expect(body.configured).toBe(false);
+		expect(body.syncthingInstalled).toBe(true);
+		expect(body.pairing).toBe(false);
+	});
+
+	it("POST /api/pair/invite rejects a missing token", async () => {
+		const base = await startPair({});
+		const res = await fetch(`${base}/api/pair/invite`, { method: "POST" });
+		expect(res.status).toBe(401);
+	});
+
+	it("POST /api/pair/invite issues a token, command, and starts the auto-accept watcher", async () => {
+		const createInvite = vi.fn(async () => ({
+			id: "i1",
+			issuedAt: "",
+			expiresAt: "",
+			maxUses: 1,
+			uses: 0,
+		}));
+		const watchAutoAccept = vi.fn(async () => 0);
+		const base = await startPair({ createInvite, watchAutoAccept });
+		const res = await fetch(`${base}/api/pair/invite`, {
+			method: "POST",
+			headers: { "X-Ccsync-Token": TOKEN },
+		});
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { token: string; command: string };
+		expect(body.token).toMatch(/^ccs2_/);
+		expect(body.command).toContain(body.token);
+		expect(createInvite).toHaveBeenCalledTimes(1);
+		// C3: the inviting machine must run the watcher so the joiner is admitted.
+		expect(watchAutoAccept).toHaveBeenCalledTimes(1);
+
+		// While the watcher window is open, /api/state reports pairing:true.
+		const state = (await (await fetch(`${base}/api/state`)).json()) as { pairing: boolean };
+		expect(state.pairing).toBe(true);
+	});
+
+	it("POST /api/pair/join passes the wizard localRoot to joinWithToken (never prompts)", async () => {
+		const joinWithToken = vi.fn(async () => ({
+			machineName: "host",
+			rootProfileMapped: true,
+			peerAdded: true,
+			alreadyPaired: false,
+			peerName: "macbook",
+			deviceId: SELF_ID,
+			foldersConfigured: 1,
+			devicesConfigured: 1,
+		}));
+		const base = await startPair({ joinWithToken });
+		const token = encodeInvite({ deviceId: SELF_ID, name: "macbook", introducer: true });
+		const res = await fetch(`${base}/api/pair/join`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({ token, localRoot: "/home/u/code" }),
+		});
+		expect(res.status).toBe(200);
+		expect(joinWithToken).toHaveBeenCalledWith(
+			token,
+			expect.objectContaining({ localRoot: "/home/u/code" }),
+		);
+	});
+
+	it("POST /api/pair/join rejects a missing token", async () => {
+		const base = await startPair({});
+		const res = await fetch(`${base}/api/pair/join`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(400);
+	});
+
+	it("GET /api/folders/browse lists subdirectories within the home root", async () => {
+		tmpHome = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-browse-")));
+		await fs.mkdir(path.join(tmpHome, "projects"), { recursive: true });
+		const base = await startPair({ homeRoot: tmpHome });
+		const res = await fetch(`${base}/api/folders/browse?path=${encodeURIComponent(tmpHome)}`);
+		expect(res.status).toBe(200);
+		const body = (await res.json()) as { entries: Array<{ name: string }> };
+		expect(body.entries.map((e) => e.name)).toContain("projects");
+	});
+
+	it("GET /api/folders/browse rejects a path that escapes the home root", async () => {
+		tmpHome = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-browse-")));
+		const base = await startPair({ homeRoot: tmpHome });
+		const res = await fetch(`${base}/api/folders/browse?path=${encodeURIComponent("/etc")}`);
+		expect(res.status).toBe(400);
 	});
 });
 

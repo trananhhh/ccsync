@@ -1,12 +1,35 @@
+import * as fs from "node:fs/promises";
 import * as http from "node:http";
+import * as os from "node:os";
+import * as path from "node:path";
 import { removeActiveLock as defaultRemoveActiveLock } from "../cli/commands/claim.js";
-import { readConfig as defaultReadConfig } from "../core/config-io.js";
-import type { Config } from "../core/config-schema.js";
+import { apply as defaultApply } from "../core/applier.js";
+import { watchAndAutoAccept } from "../core/auto-accept.js";
+import { DEFAULT_BUCKETS, withCodeRootBucket } from "../core/buckets-default.js";
+import { detectClaudeConversationsForRoot } from "../core/claude-projects.js";
+import {
+	readConfig as defaultReadConfig,
+	writeConfig as defaultWriteConfig,
+} from "../core/config-io.js";
+import { type Config, ConfigSchema } from "../core/config-schema.js";
 import { type ConflictAction, findConflicts, resolveConflict } from "../core/conflicts-scanner.js";
+import { GLOBAL_IGNORE_PATTERNS } from "../core/ignores-default.js";
+import { createInvite as defaultCreateInvite } from "../core/invite-store.js";
+import { encodeInvite } from "../core/invite-token.js";
+import { joinWithToken as defaultJoinWithToken } from "../core/join.js";
 import { applyAndSave as defaultApplyAndSave } from "../core/mutate.js";
+import { createRootProfile, inviteRootProfile } from "../core/root-profile.js";
 import { applyPause as defaultApplyPause } from "../core/sync-control.js";
 import { SyncthingApi } from "../core/syncthing-api.js";
+import {
+	bootstrapFreshHome as defaultBootstrapFreshHome,
+	ensureDaemonRunning as defaultEnsureDaemonRunning,
+} from "../core/syncthing-bootstrap.js";
 import { buildFolders } from "../core/syncthing-config.js";
+import { which } from "../lib/exec.js";
+import { ensureSyncthing as defaultEnsureSyncthing } from "../platform/installer.js";
+import { syncthingHome } from "../platform/paths.js";
+import { browseDirectory } from "./folders.js";
 import { waitUntilSynced } from "./handoff.js";
 import { openSse } from "./sse.js";
 import type { MonitorState } from "./sync-monitor.js";
@@ -15,15 +38,30 @@ export interface StateMonitor {
 	subscribe(fn: (state: MonitorState) => void): () => void;
 }
 
+/** Auto-accept watcher seam so `POST /api/pair/invite` can be tested in isolation. */
+export type WatchAutoAccept = (opts: { api: SyncthingApi; deadline?: number }) => Promise<number>;
+
 export interface ControlServerDeps {
 	token: string;
 	configPath: string;
 	apiFor: (cfg: Config) => SyncthingApi;
 	monitor?: StateMonitor;
 	readConfig?: typeof defaultReadConfig;
+	writeConfig?: typeof defaultWriteConfig;
 	applyAndSave?: typeof defaultApplyAndSave;
 	applyPause?: typeof defaultApplyPause;
 	removeActiveLock?: typeof defaultRemoveActiveLock;
+	apply?: typeof defaultApply;
+	createInvite?: typeof defaultCreateInvite;
+	watchAutoAccept?: WatchAutoAccept;
+	joinWithToken?: typeof defaultJoinWithToken;
+	ensureSyncthing?: typeof defaultEnsureSyncthing;
+	ensureDaemonRunning?: typeof defaultEnsureDaemonRunning;
+	bootstrapFreshHome?: typeof defaultBootstrapFreshHome;
+	/** Detects whether the Syncthing binary is on PATH (wizard step 1 gating). */
+	detectSyncthing?: () => Promise<boolean>;
+	/** Confinement root for the folder browser; defaults to the user's home. */
+	homeRoot?: string;
 }
 
 interface ToggleBody {
@@ -44,6 +82,16 @@ interface ResolveBody {
 interface HandoffBody {
 	timeoutMs?: number;
 }
+interface PairJoinBody {
+	token: string;
+	localRoot?: string;
+}
+interface SetupInitBody {
+	machineName?: string;
+	codeRoot?: string;
+	codeFolders?: string[];
+	buckets?: Record<string, boolean>;
+}
 
 const RESOLVE_ACTIONS: readonly ConflictAction[] = ["keep-local", "keep-remote", "skip"];
 
@@ -51,6 +99,9 @@ const RESOLVE_ACTIONS: readonly ConflictAction[] = ["keep-local", "keep-remote",
 const HANDOFF_WINDOW_MS = 8000;
 const HANDOFF_MIN_MS = 1000;
 const HANDOFF_MAX_MS = 30_000;
+
+/** How long the in-process auto-accept watcher runs after an invite is issued. */
+const PAIR_WATCH_MS = 10 * 60 * 1000;
 
 function clamp(n: number, lo: number, hi: number): number {
 	return Math.min(hi, Math.max(lo, n));
@@ -80,11 +131,49 @@ function send(res: http.ServerResponse, status: number, body: unknown): void {
 	res.end(json);
 }
 
+/**
+ * Setup is "complete enough" to show the dashboard once Syncthing is bootstrapped
+ * AND we either paired with a machine or mapped a code root. A bare bootstrapped
+ * config (identity only) keeps the wizard up, so an interrupted run resumes.
+ */
+function isConfigured(cfg?: Config): boolean {
+	return Boolean(cfg?.syncthing && (cfg.peers.length > 0 || cfg.rootProfile));
+}
+
 export function createControlServer(deps: ControlServerDeps): http.Server {
 	const read = deps.readConfig ?? defaultReadConfig;
+	const writeConfigFn = deps.writeConfig ?? defaultWriteConfig;
 	const applyAndSaveFn = deps.applyAndSave ?? defaultApplyAndSave;
 	const applyPauseFn = deps.applyPause ?? defaultApplyPause;
 	const removeLock = deps.removeActiveLock ?? defaultRemoveActiveLock;
+	const applyFn = deps.apply ?? defaultApply;
+	const createInviteFn = deps.createInvite ?? defaultCreateInvite;
+	const watchAutoAcceptFn = deps.watchAutoAccept ?? ((opts) => watchAndAutoAccept(opts));
+	const joinWithTokenFn = deps.joinWithToken ?? defaultJoinWithToken;
+	const ensureSyncthingFn = deps.ensureSyncthing ?? defaultEnsureSyncthing;
+	const ensureDaemonRunningFn = deps.ensureDaemonRunning ?? defaultEnsureDaemonRunning;
+	const bootstrapFreshHomeFn = deps.bootstrapFreshHome ?? defaultBootstrapFreshHome;
+	const detectSyncthingFn = deps.detectSyncthing ?? (async () => Boolean(await which("syncthing")));
+
+	// Tracks the in-process auto-accept watcher started by `POST /api/pair/invite`.
+	// `pairingUntil` drives the dashboard's "waiting for a machine to join…" badge
+	// and expires by time; `watcherRunning` dedupes the loop so a second invite in
+	// the same window reuses the still-polling watcher (it picks up the new slot)
+	// rather than spawning an overlapping one.
+	let pairingUntil = 0;
+	let watcherRunning = false;
+	const isPairingActive = () => Date.now() < pairingUntil;
+
+	function startPairingWatcher(api: SyncthingApi): void {
+		pairingUntil = Date.now() + PAIR_WATCH_MS;
+		if (watcherRunning) return;
+		watcherRunning = true;
+		watchAutoAcceptFn({ api, deadline: pairingUntil })
+			.catch(() => {})
+			.finally(() => {
+				watcherRunning = false;
+			});
+	}
 
 	return http.createServer(async (req, res) => {
 		const url = new URL(req.url ?? "/", "http://127.0.0.1");
@@ -110,7 +199,21 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 
 		try {
 			if (req.method === "GET" && url.pathname === "/api/state") {
-				const cfg = await read(deps.configPath);
+				// Tolerate a missing/unreadable config: a fresh machine has none yet,
+				// and the wizard needs `configured:false` rather than a 500.
+				const cfg = await read(deps.configPath).catch(() => undefined);
+				const syncthingInstalled = await detectSyncthingFn();
+				if (!cfg) {
+					return send(res, 200, {
+						machineName: os.hostname(),
+						metered: false,
+						peers: [],
+						buckets: [],
+						configured: false,
+						syncthingInstalled,
+						pairing: isPairingActive(),
+					});
+				}
 				return send(res, 200, {
 					machineName: cfg.machineName,
 					metered: cfg.metered,
@@ -120,7 +223,22 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 						enabled: b.enabled,
 						paths: b.paths,
 					})),
+					configured: isConfigured(cfg),
+					syncthingInstalled,
+					pairing: isPairingActive(),
 				});
+			}
+
+			if (req.method === "GET" && url.pathname === "/api/folders/browse") {
+				try {
+					const result = await browseDirectory(
+						url.searchParams.get("path") ?? undefined,
+						deps.homeRoot,
+					);
+					return send(res, 200, result);
+				} catch (err) {
+					return send(res, 400, { error: err instanceof Error ? err.message : String(err) });
+				}
 			}
 
 			if (req.method === "GET" && url.pathname === "/api/conflicts") {
@@ -195,6 +313,49 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 				return send(res, 200, { ok: true, file: body.file, action: body.action });
 			}
 
+			if (req.method === "POST" && url.pathname === "/api/setup/init") {
+				const body = await readJson<SetupInitBody>(req);
+				const result = await runSetupInit(body);
+				return send(res, 200, result);
+			}
+
+			if (req.method === "POST" && url.pathname === "/api/pair/invite") {
+				const cfg = await read(deps.configPath).catch(() => undefined);
+				if (!cfg?.syncthing) {
+					return send(res, 503, { error: "config.syncthing not initialised — finish setup first" });
+				}
+				const api = deps.apiFor(cfg);
+				const sys = await api.systemStatus();
+				// Consume-on-join slot the watcher draws from, then issue the token.
+				await createInviteFn();
+				const token = encodeInvite({
+					deviceId: sys.myID,
+					name: cfg.machineName,
+					introducer: true,
+					rootProfile: cfg.rootProfile ? inviteRootProfile(cfg.rootProfile) : undefined,
+				});
+				// C3: the join only completes if THIS machine admits the joiner's pending
+				// device. Run the auto-accept watcher in-process for the invite window.
+				startPairingWatcher(api);
+				return send(res, 200, {
+					token,
+					command: `npx @trananhhh/ccsync setup ${token}`,
+				});
+			}
+
+			if (req.method === "POST" && url.pathname === "/api/pair/join") {
+				const body = await readJson<PairJoinBody>(req);
+				if (!body.token) {
+					return send(res, 400, { error: "token is required" });
+				}
+				// `localRoot` comes from wizard step 4 — joinWithToken NEVER prompts.
+				const result = await joinWithTokenFn(body.token, {
+					localRoot: body.localRoot,
+					configPath: deps.configPath,
+				});
+				return send(res, 200, { ok: true, result });
+			}
+
 			if (req.method === "POST" && url.pathname === "/api/handoff/release") {
 				const body = await readJson<HandoffBody>(req);
 				const cfg = await read(deps.configPath);
@@ -238,6 +399,67 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 			return send(res, 500, { error: err instanceof Error ? err.message : String(err) });
 		}
 	});
+
+	/**
+	 * Bootstrap the first machine from the browser wizard: ensure Syncthing,
+	 * create a fresh dedicated identity if needed, enable the chosen buckets, map
+	 * the picked code root, then persist and apply. Reuses the same core the CLI
+	 * `ccsync setup` drives, so the two paths converge on one config shape.
+	 */
+	async function runSetupInit(
+		body: SetupInitBody,
+	): Promise<{ ok: true; configured: boolean; machineName: string }> {
+		const existing = await read(deps.configPath).catch(() => undefined);
+		let cfg: Config;
+		if (existing?.syncthing) {
+			cfg = existing;
+			if (body.machineName) cfg.machineName = body.machineName;
+		} else {
+			const install = await ensureSyncthingFn();
+			if (!install.installed) throw new Error(install.message);
+			const stHome = syncthingHome();
+			const identity = await bootstrapFreshHomeFn(stHome);
+			cfg = ConfigSchema.parse({
+				machineName: body.machineName || os.hostname(),
+				syncthing: { apiKey: identity.apiKey, guiAddress: identity.guiAddress, homeDir: stHome },
+				peers: [],
+				buckets: DEFAULT_BUCKETS,
+				globalIgnore: GLOBAL_IGNORE_PATTERNS,
+			});
+		}
+
+		if (body.buckets) {
+			for (const [name, on] of Object.entries(body.buckets)) {
+				if (cfg.buckets[name]) cfg.buckets[name].enabled = on;
+			}
+		}
+
+		if (body.codeRoot && !cfg.rootProfile) {
+			const root = path.resolve(body.codeRoot);
+			await fs.mkdir(root, { recursive: true });
+			const detected = await detectClaudeConversationsForRoot(root);
+			const codeFolders = (body.codeFolders ?? []).map((relativePath) => ({ relativePath }));
+			cfg.rootProfile = createRootProfile({
+				canonicalRoot: root,
+				localRoot: root,
+				codeFolders,
+				projects: detected.projects,
+				conversations: detected.conversations,
+			});
+			cfg.buckets = withCodeRootBucket(
+				cfg.buckets,
+				root,
+				codeFolders.map((folder) => folder.relativePath),
+			);
+		}
+
+		await writeConfigFn(deps.configPath, cfg);
+		if (cfg.syncthing) {
+			await ensureDaemonRunningFn(cfg.syncthing.homeDir, cfg.syncthing.guiAddress);
+		}
+		await applyFn(cfg);
+		return { ok: true, configured: isConfigured(cfg), machineName: cfg.machineName };
+	}
 }
 
 export function apiFromConfig(cfg: Config): SyncthingApi {

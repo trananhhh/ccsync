@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as os from "node:os";
 import * as path from "node:path";
-import { input } from "@inquirer/prompts";
+import { confirm, input } from "@inquirer/prompts";
 import { createSpinner } from "nanospinner";
 import { apply } from "../../core/applier.js";
 import { DEFAULT_BUCKETS, withCodeRootBucket } from "../../core/buckets-default.js";
@@ -48,6 +48,21 @@ export interface SetupOptions {
 export async function handleSetup(opts: SetupOptions): Promise<void> {
 	const cfgPath = ccsyncConfigPath();
 	if (opts.fresh) {
+		const home = syncthingHome();
+		if (isInteractive()) {
+			const proceed = await confirm({
+				message: `\`--fresh\` will DELETE the Syncthing home at ${home} (device identity + ALL Syncthing folders, including any not managed by ccsync). Continue?`,
+				default: false,
+			});
+			if (!proceed) {
+				log.plain("Aborted.");
+				return;
+			}
+		} else {
+			log.warn(
+				`--fresh is deleting the Syncthing home at ${home} (device identity + ALL Syncthing folders).`,
+			);
+		}
 		log.step("Resetting local ccsync config…");
 		let stop: (() => Promise<void>) | undefined;
 		if (await configExists(cfgPath)) {

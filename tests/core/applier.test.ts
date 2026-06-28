@@ -4,14 +4,19 @@ import {
 	CCSYNC_FOLDER_PREFIX,
 	collectStignoreTargets,
 	isCcsyncFolder,
+	mergeDevices,
 	mergeFolders,
 } from "../../src/core/applier.js";
 import type { Config } from "../../src/core/config-schema.js";
 import { createRootProfile } from "../../src/core/root-profile.js";
-import type { SyncthingFolder } from "../../src/core/syncthing-api.js";
+import type { SyncthingDevice, SyncthingFolder } from "../../src/core/syncthing-api.js";
 
 function folder(id: string): SyncthingFolder {
 	return { id, label: id, path: `/tmp/${id}`, type: "sendreceive", devices: [] };
+}
+
+function device(deviceID: string): SyncthingDevice {
+	return { deviceID, name: deviceID, addresses: ["dynamic"], compression: "metadata" };
 }
 
 describe("mergeFolders", () => {
@@ -33,6 +38,36 @@ describe("mergeFolders", () => {
 		expect(isCcsyncFolder("ccsync-conv-x")).toBe(true);
 		expect(isCcsyncFolder("user-photos")).toBe(false);
 		expect(CCSYNC_FOLDER_PREFIX).toBe("ccsync-");
+	});
+});
+
+describe("mergeDevices", () => {
+	it("pauses owned devices when metered is on", () => {
+		const owned = [device("SELF"), device("PEER")];
+		const merged = mergeDevices(owned, owned, true);
+		expect(merged.every((d) => d.paused === true)).toBe(true);
+	});
+
+	it("unpauses owned devices when metered is off", () => {
+		const owned = [device("SELF"), device("PEER")];
+		const remote = [
+			{ ...device("SELF"), paused: true },
+			{ ...device("PEER"), paused: true },
+		];
+		const merged = mergeDevices(remote, owned, false);
+		expect(merged.every((d) => d.paused === false)).toBe(true);
+	});
+
+	it("preserves foreign devices unchanged", () => {
+		const owned = [device("SELF"), device("PEER")];
+		const foreign = { ...device("FOREIGN"), paused: true, introducer: true };
+		const remote = [device("SELF"), foreign];
+		const merged = mergeDevices(remote, owned, true);
+		const kept = merged.find((d) => d.deviceID === "FOREIGN");
+		expect(kept).toEqual(foreign);
+		for (const d of merged) {
+			if (d.deviceID !== "FOREIGN") expect(d.paused).toBe(true);
+		}
 	});
 });
 

@@ -3,7 +3,7 @@ import { findUnanchoredNegations } from "./ccsyncignore.js";
 import type { Bucket, Config } from "./config-schema.js";
 import { rootConversationPath, rootConversations } from "./root-profile.js";
 import { writeStignore } from "./stignore-writer.js";
-import { SyncthingApi, type SyncthingFolder } from "./syncthing-api.js";
+import { SyncthingApi, type SyncthingDevice, type SyncthingFolder } from "./syncthing-api.js";
 import { buildDevices, buildFolders } from "./syncthing-config.js";
 import { isLegacySingleFileBucketPath } from "./syncthing-folder-paths.js";
 
@@ -21,18 +21,38 @@ export function mergeFolders(
 	return [...foreign, ...owned];
 }
 
+/**
+ * Merge the devices we own (self + configured peers) with any foreign devices
+ * already present in the remote config. Owned-device pause state is derived from
+ * cfg.metered so that re-applying the config never accidentally un-pauses a
+ * metered connection. Foreign devices are passed through untouched.
+ */
+export function mergeDevices(
+	remote: SyncthingDevice[],
+	owned: SyncthingDevice[],
+	metered: boolean,
+): SyncthingDevice[] {
+	const ownedIds = new Set(owned.map((d) => d.deviceID));
+	const ownedWithPaused = owned.map((d) => ({ ...d, paused: metered }));
+	const foreign = remote.filter((d) => !ownedIds.has(d.deviceID));
+	return [...ownedWithPaused, ...foreign];
+}
+
 export interface ApplyResult {
 	foldersConfigured: number;
 	devicesConfigured: number;
 	stignoresWritten: number;
 }
 
-export async function apply(cfg: Config): Promise<ApplyResult> {
-	if (!cfg.syncthing) throw new Error("config.syncthing not initialised — run `ccsync init`");
-	const api = new SyncthingApi({
-		apiKey: cfg.syncthing.apiKey,
-		guiAddress: cfg.syncthing.guiAddress,
-	});
+export async function apply(cfg: Config, injectedApi?: SyncthingApi): Promise<ApplyResult> {
+	let api = injectedApi;
+	if (!api) {
+		if (!cfg.syncthing) throw new Error("config.syncthing not initialised — run `ccsync init`");
+		api = new SyncthingApi({
+			apiKey: cfg.syncthing.apiKey,
+			guiAddress: cfg.syncthing.guiAddress,
+		});
+	}
 	const status = await api.systemStatus();
 	const folders = buildFolders({
 		machineName: cfg.machineName,
@@ -47,7 +67,7 @@ export async function apply(cfg: Config): Promise<ApplyResult> {
 	const merged = {
 		...remote,
 		folders: mergeFolders(remote.folders, folders),
-		devices,
+		devices: mergeDevices(remote.devices, devices, cfg.metered ?? false),
 	};
 	await api.putConfig(merged);
 

@@ -35,18 +35,48 @@ export function openBrowser(url: string): void {
 	}
 }
 
-/** True when a ccsync control service answers GET /api/state at `url`. */
+/**
+ * True when a *ccsync* control service answers GET /api/state at `url`. A bare
+ * 200 isn't enough — some other process could be squatting the persisted port —
+ * so the body must parse as JSON and carry the stable `configured: boolean`
+ * marker that every /api/state response returns. Any parse failure or missing
+ * marker is treated as "not our service".
+ */
 export async function pingService(url: string, timeoutMs = 500): Promise<boolean> {
 	const ctrl = new AbortController();
 	const timer = setTimeout(() => ctrl.abort(), timeoutMs);
 	try {
 		const res = await fetch(`${url}/api/state`, { signal: ctrl.signal });
-		return res.ok;
+		if (!res.ok) return false;
+		const body = (await res.json()) as { configured?: unknown };
+		return typeof body.configured === "boolean";
 	} catch {
 		return false;
 	} finally {
 		clearTimeout(timer);
 	}
+}
+
+function isAddrInUse(err: unknown): boolean {
+	return (err as NodeJS.ErrnoException | undefined)?.code === "EADDRINUSE";
+}
+
+/** Listen on `port`, resolving on "listening" and rejecting on "error" — with
+ * the paired listeners cleaned up so a later attempt can re-listen cleanly. */
+function listenOnce(server: http.Server, port: number): Promise<void> {
+	return new Promise<void>((resolve, reject) => {
+		const onError = (err: Error) => {
+			server.removeListener("listening", onListening);
+			reject(err);
+		};
+		const onListening = () => {
+			server.removeListener("error", onError);
+			resolve();
+		};
+		server.once("error", onError);
+		server.once("listening", onListening);
+		server.listen(port, "127.0.0.1");
+	});
 }
 
 function isPortAvailable(port: number): Promise<boolean> {
@@ -98,6 +128,13 @@ export async function startControlService(
 
 	// One shared monitor drives the SSE feed for every client. Only start it when
 	// Syncthing is configured; without it the /api/events route returns 503.
+	//
+	// Note: the monitor binds an api handle from this config snapshot. If a CLI
+	// `migrate` to the dedicated home runs while this service is live, that handle
+	// keeps pointing at the now-stopped old daemon until the service restarts;
+	// SyncMonitor degrades gracefully (its polls fail and it rebaselines) rather
+	// than crashing, but the live feed is stale until a restart picks up the new
+	// homeDir/apiKey.
 	const cfg = await readConfig(configPath).catch(() => undefined);
 	let monitor: SyncMonitor | undefined;
 	if (cfg?.syncthing) {
@@ -136,11 +173,24 @@ export async function startControlService(
 		serveStatic(req, res);
 	});
 
-	const port = opts.port ?? (await resolveStablePort(ccsyncHome()));
-	await new Promise<void>((resolve, reject) => {
-		server.once("error", reject);
-		server.listen(port, "127.0.0.1", resolve);
-	});
+	// resolveStablePort probes for a free port, but another process can grab it in
+	// the gap before listen (a TOCTOU race). On EADDRINUSE re-probe a fresh port
+	// and retry — unless the caller pinned an explicit port, in which case the
+	// failure is intentional and propagates.
+	let port = opts.port ?? (await resolveStablePort(ccsyncHome()));
+	const maxAttempts = 3;
+	for (let attempt = 1; ; attempt++) {
+		try {
+			await listenOnce(server, port);
+			break;
+		} catch (err) {
+			if (opts.port === undefined && isAddrInUse(err) && attempt < maxAttempts) {
+				port = await probeFreePort();
+				continue;
+			}
+			throw err;
+		}
+	}
 	const { port: boundPort } = server.address() as AddressInfo;
 	const url = `http://127.0.0.1:${boundPort}`;
 	await fs.mkdir(ccsyncHome(), { recursive: true });

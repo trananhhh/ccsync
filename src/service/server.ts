@@ -295,7 +295,12 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 			}
 
 			if (req.method === "GET" && url.pathname === "/api/conflicts") {
-				const cfg = await read(deps.configPath);
+				// A fresh/no-config machine has nothing to scan — return a clean 503
+				// rather than letting the missing config read 500.
+				const cfg = await read(deps.configPath).catch(() => undefined);
+				if (!cfg) {
+					return send(res, 503, { error: "service not configured" });
+				}
 				const conflicts = await findConflicts(cfg);
 				return send(res, 200, {
 					conflicts: conflicts.map((c) => ({
@@ -433,9 +438,11 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 
 			if (req.method === "POST" && url.pathname === "/api/handoff/release") {
 				const body = await readJson<HandoffBody>(req);
-				const cfg = await read(deps.configPath);
-				if (!cfg.syncthing) {
-					return send(res, 503, { error: "config.syncthing not initialised" });
+				// A fresh/no-config machine cannot release a handoff — surface a clean
+				// 503 instead of letting the missing config read 500.
+				const cfg = await read(deps.configPath).catch(() => undefined);
+				if (!cfg?.syncthing) {
+					return send(res, 503, { error: "service not configured" });
 				}
 				const api = deps.apiFor(cfg);
 				const sys = await api.systemStatus();

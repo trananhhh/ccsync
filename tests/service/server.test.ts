@@ -157,6 +157,48 @@ describe("control server hardening", () => {
 		expect(res.status).toBe(400);
 	});
 
+	it("GET /api/conflicts returns 503 on a no-config machine (not a 500)", async () => {
+		server = createControlServer({
+			token: TOKEN,
+			configPath: "/tmp/x.yaml",
+			apiFor: () => ({}) as unknown as SyncthingApi,
+			readConfig: async () => {
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			},
+		});
+		const base = await new Promise<string>((resolve) => {
+			server.listen(0, "127.0.0.1", () => {
+				const { port } = server.address() as AddressInfo;
+				resolve(`http://127.0.0.1:${port}`);
+			});
+		});
+		const res = await fetch(`${base}/api/conflicts`);
+		expect(res.status).toBe(503);
+	});
+
+	it("POST /api/handoff/release returns 503 on a no-config machine (not a 500)", async () => {
+		server = createControlServer({
+			token: TOKEN,
+			configPath: "/tmp/x.yaml",
+			apiFor: () => ({}) as unknown as SyncthingApi,
+			readConfig: async () => {
+				throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+			},
+		});
+		const base = await new Promise<string>((resolve) => {
+			server.listen(0, "127.0.0.1", () => {
+				const { port } = server.address() as AddressInfo;
+				resolve(`http://127.0.0.1:${port}`);
+			});
+		});
+		const res = await fetch(`${base}/api/handoff/release`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({}),
+		});
+		expect(res.status).toBe(503);
+	});
+
 	it("rejects an oversize body: caps the read and destroys the socket", async () => {
 		const base = await start();
 		const { port } = new URL(base);

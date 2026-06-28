@@ -39,17 +39,37 @@ describe("pingService", () => {
 		server = undefined;
 	});
 
-	it("is true when /api/state answers ok", async () => {
-		server = http.createServer((_req, res) => {
-			res.writeHead(200, { "Content-Type": "application/json" });
-			res.end("{}");
-		});
-		const base = await new Promise<string>((resolve) => {
+	function serve(handler: http.RequestListener): Promise<string> {
+		server = http.createServer(handler);
+		return new Promise<string>((resolve) => {
 			server?.listen(0, "127.0.0.1", () =>
 				resolve(`http://127.0.0.1:${(server?.address() as AddressInfo).port}`),
 			);
 		});
+	}
+
+	it("is true when /api/state returns the configured marker", async () => {
+		const base = await serve((_req, res) => {
+			res.writeHead(200, { "Content-Type": "application/json" });
+			res.end(JSON.stringify({ configured: false, machineName: "m" }));
+		});
 		expect(await pingService(base)).toBe(true);
+	});
+
+	it("is false when a squatter returns 200 without the configured marker", async () => {
+		const base = await serve((_req, res) => {
+			res.writeHead(200, { "Content-Type": "application/json" });
+			res.end("{}");
+		});
+		expect(await pingService(base)).toBe(false);
+	});
+
+	it("is false when the body is not JSON", async () => {
+		const base = await serve((_req, res) => {
+			res.writeHead(200, { "Content-Type": "text/html" });
+			res.end("<html>not us</html>");
+		});
+		expect(await pingService(base)).toBe(false);
 	});
 
 	it("is false when nothing is listening", async () => {

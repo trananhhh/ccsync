@@ -45,6 +45,58 @@ describe("SyncthingApi", () => {
 		expect(await api.ping()).toBe(false);
 	});
 
+	it("events() builds the long-poll query and parses the array", async () => {
+		const seen: string[] = [];
+		globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+			seen.push(url.toString());
+			return new Response(JSON.stringify([{ id: 7, type: "StateChanged", time: "now" }]), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}) as typeof fetch;
+		const api = new SyncthingApi({ apiKey: "x", guiAddress: "127.0.0.1:8384" });
+		const events = await api.events({
+			since: 5,
+			timeout: 30,
+			events: ["StateChanged", "FolderSummary"],
+		});
+		expect(events[0].id).toBe(7);
+		expect(seen[0]).toContain("/rest/events?");
+		expect(seen[0]).toContain("since=5");
+		expect(seen[0]).toContain("timeout=30");
+		expect(seen[0]).toContain("events=StateChanged%2CFolderSummary");
+	});
+
+	it("events() re-baselines with limit=1 and no since", async () => {
+		const seen: string[] = [];
+		globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+			seen.push(url.toString());
+			return new Response(JSON.stringify([{ id: 42, type: "Starting", time: "now" }]), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}) as typeof fetch;
+		const api = new SyncthingApi({ apiKey: "x", guiAddress: "127.0.0.1:8384" });
+		await api.events({ limit: 1 });
+		expect(seen[0]).toContain("limit=1");
+		expect(seen[0]).not.toContain("since=");
+	});
+
+	it("completion() targets a folder and parses completion %", async () => {
+		const seen: string[] = [];
+		globalThis.fetch = vi.fn(async (url: string | URL | Request) => {
+			seen.push(url.toString());
+			return new Response(JSON.stringify({ completion: 87.5, globalBytes: 100, needBytes: 12 }), {
+				status: 200,
+				headers: { "content-type": "application/json" },
+			});
+		}) as typeof fetch;
+		const api = new SyncthingApi({ apiKey: "x", guiAddress: "127.0.0.1:8384" });
+		const c = await api.completion("ccsync-claude-config-0");
+		expect(c.completion).toBe(87.5);
+		expect(seen[0]).toContain("/rest/db/completion?folder=ccsync-claude-config-0");
+	});
+
 	it("normalises GUI address with and without scheme", async () => {
 		const seen: string[] = [];
 		globalThis.fetch = vi.fn(async (url: string | URL | Request) => {

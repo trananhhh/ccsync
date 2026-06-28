@@ -42,6 +42,7 @@ describe("collectStignoreTargets", () => {
 			machineName: "macbook",
 			peers: [],
 			globalIgnore: [],
+			metered: false,
 			rootProfile: createRootProfile({
 				id: "profile-a",
 				canonicalRoot: "/Users/alice/work",
@@ -78,6 +79,7 @@ describe("collectStignoreTargets", () => {
 			machineName: "macbook",
 			peers: [],
 			globalIgnore: [],
+			metered: false,
 			buckets: {
 				"code-root": {
 					enabled: true,
@@ -107,6 +109,7 @@ describe("collectStignoreTargets", () => {
 			machineName: "macbook",
 			peers: [],
 			globalIgnore: [],
+			metered: false,
 			buckets: {
 				"claude-config": {
 					enabled: true,

@@ -118,6 +118,7 @@ export interface SyncthingFolder {
 	ignorePerms?: boolean;
 	rescanIntervalS?: number;
 	fsWatcherEnabled?: boolean;
+	paused?: boolean;
 }
 
 export interface SyncthingDevice {
@@ -126,6 +127,7 @@ export interface SyncthingDevice {
 	addresses: string[];
 	compression?: "metadata" | "always" | "never";
 	introducer?: boolean;
+	paused?: boolean;
 }
 
 export interface SyncthingConfig {

@@ -70,6 +70,7 @@ export const ConfigSchema = z.object({
 	peers: z.array(PeerSchema).default([]),
 	buckets: z.record(z.string(), BucketSchema).default({}),
 	globalIgnore: z.array(z.string()).default([]),
+	metered: z.boolean().default(false),
 	rootProfile: RootProfileSchema.optional(),
 });
 

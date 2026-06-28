@@ -35,6 +35,7 @@ describe("config-io", () => {
 				},
 			},
 			globalIgnore: [],
+			metered: false,
 		};
 		await writeConfig(configPath, cfg);
 		expect(await configExists(configPath)).toBe(true);
@@ -56,6 +57,7 @@ describe("config-io", () => {
 				},
 			},
 			globalIgnore: [],
+			metered: false,
 		};
 		await writeConfig(configPath, cfg);
 

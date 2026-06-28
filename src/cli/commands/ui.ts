@@ -11,11 +11,6 @@ import {
 
 export async function handleUi(): Promise<void> {
 	const cfgPath = ccsyncConfigPath();
-	if (!(await configExists(cfgPath))) {
-		log.error("No ccsync config yet. Run `ccsync setup` first.");
-		process.exitCode = 1;
-		return;
-	}
 
 	// Reuse an already-running service so a second `ccsync ui` does not spawn a
 	// duplicate server (and, from Phase 2, a duplicate Syncthing events loop).
@@ -27,9 +22,16 @@ export async function handleUi(): Promise<void> {
 		return;
 	}
 
-	const cfg = await readConfig(cfgPath);
-	if (cfg.syncthing) {
-		await ensureDaemonRunning(cfg.syncthing.homeDir, cfg.syncthing.guiAddress);
+	// A fresh machine has no config yet — the browser onboarding wizard creates it.
+	// The control service runs fine without a config, so start it and let the
+	// wizard drive setup. When a config already exists, make sure the daemon is up.
+	if (await configExists(cfgPath)) {
+		const cfg = await readConfig(cfgPath);
+		if (cfg.syncthing) {
+			await ensureDaemonRunning(cfg.syncthing.homeDir, cfg.syncthing.guiAddress);
+		}
+	} else {
+		log.step("No config yet — opening the setup wizard in your browser…");
 	}
 	const { url } = await startControlService({ open: true });
 	log.success(`ccsync dashboard: ${url}`);

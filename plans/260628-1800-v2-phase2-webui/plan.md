@@ -1,7 +1,7 @@
 ---
 title: "ccsync v2 Phase 2 — Web UI, onboarding, dedicated home, polish"
 description: ""
-status: pending
+status: completed
 priority: P2
 branch: "feat/v2-phase2-webui"
 tags: []
@@ -46,12 +46,12 @@ exactly because pause/apply was reviewed end-to-end; keep that discipline here
 
 | Phase | Name | Status |
 |-------|------|--------|
-| 1 | [Build pipeline + SPA shell](./phase-01-build-pipeline-spa-shell.md) | Pending |
-| 2 | [SSE realtime feed](./phase-02-sse-realtime-feed.md) | Pending |
-| 3 | [Dashboard](./phase-03-dashboard.md) | Pending |
-| 4 | [Onboarding wizard + pairing](./phase-04-onboarding-wizard-pairing.md) | Pending |
-| 5 | [Dedicated Syncthing home](./phase-05-dedicated-syncthing-home.md) | Pending |
-| 6 | [Hardening + CLI cleanup](./phase-06-hardening-cli-cleanup.md) | Pending |
+| 1 | [Build pipeline + SPA shell](./phase-01-build-pipeline-spa-shell.md) | Completed |
+| 2 | [SSE realtime feed](./phase-02-sse-realtime-feed.md) | Completed |
+| 3 | [Dashboard](./phase-03-dashboard.md) | Completed |
+| 4 | [Onboarding wizard + pairing](./phase-04-onboarding-wizard-pairing.md) | Completed |
+| 5 | [Dedicated Syncthing home](./phase-05-dedicated-syncthing-home.md) | Completed |
+| 6 | [Hardening + CLI cleanup](./phase-06-hardening-cli-cleanup.md) | Completed |
 
 ## Dependencies
 

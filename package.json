@@ -16,7 +16,7 @@
   },
   "scripts": {
     "build": "tsup && pnpm build:ui",
-    "build:ui": "pnpm -C ui build",
+    "build:ui": "pnpm -C ui install --frozen-lockfile && pnpm -C ui build",
     "dev": "tsup --watch",
     "dev:ui": "pnpm -C ui dev",
     "test": "vitest run",

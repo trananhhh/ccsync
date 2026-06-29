@@ -17,13 +17,18 @@ export async function ensureSyncthing(): Promise<InstallResult> {
 async function installViaPkg(os: OsInfo): Promise<InstallResult> {
 	switch (os.pkgManager) {
 		case "brew":
+			// Homebrew refuses to run under sudo, so never elevate it.
 			return runInstall("brew", ["install", "syncthing"]);
 		case "apt":
-			return runInstall("sudo", ["apt-get", "install", "-y", "syncthing"]);
+			return runInstall(...elevate("apt-get", ["install", "-y", "syncthing"]));
 		case "dnf":
-			return runInstall("sudo", ["dnf", "install", "-y", "syncthing"]);
+			return runInstall(...elevate("dnf", ["install", "-y", "syncthing"]));
 		case "pacman":
-			return runInstall("sudo", ["pacman", "-S", "--noconfirm", "syncthing"]);
+			return runInstall(...elevate("pacman", ["-S", "--noconfirm", "syncthing"]));
+		case "zypper":
+			return runInstall(...elevate("zypper", ["install", "-y", "syncthing"]));
+		case "apk":
+			return runInstall(...elevate("apk", ["add", "syncthing"]));
 		default:
 			return {
 				installed: false,
@@ -32,6 +37,16 @@ async function installViaPkg(os: OsInfo): Promise<InstallResult> {
 					"Unsupported package manager. Install Syncthing manually from https://syncthing.net/downloads/",
 			};
 	}
+}
+
+/**
+ * Prefix a privileged install command with `sudo` only when we are not already
+ * root. Headless Linux (containers, minimal servers) commonly runs as root with
+ * no `sudo` binary present, where prefixing `sudo` would fail spuriously.
+ */
+export function elevate(cmd: string, args: string[]): [string, string[]] {
+	const isRoot = typeof process.getuid === "function" && process.getuid() === 0;
+	return isRoot ? [cmd, args] : ["sudo", [cmd, ...args]];
 }
 
 async function runInstall(cmd: string, args: string[]): Promise<InstallResult> {

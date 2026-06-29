@@ -29,7 +29,7 @@ export function claudeHome(): string {
 
 export interface OsInfo {
 	platform: NodeJS.Platform;
-	pkgManager: "brew" | "apt" | "dnf" | "pacman" | "unknown";
+	pkgManager: "brew" | "apt" | "dnf" | "pacman" | "zypper" | "apk" | "unknown";
 }
 
 export function detectOs(): OsInfo {
@@ -40,6 +40,8 @@ export function detectOs(): OsInfo {
 		if (fileExistsSync("/usr/bin/apt") || fileExistsSync("/usr/bin/apt-get")) pkgManager = "apt";
 		else if (fileExistsSync("/usr/bin/dnf")) pkgManager = "dnf";
 		else if (fileExistsSync("/usr/bin/pacman")) pkgManager = "pacman";
+		else if (fileExistsSync("/usr/bin/zypper")) pkgManager = "zypper";
+		else if (fileExistsSync("/sbin/apk") || fileExistsSync("/usr/bin/apk")) pkgManager = "apk";
 	}
 	return { platform, pkgManager };
 }

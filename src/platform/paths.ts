@@ -1,3 +1,4 @@
+import { accessSync } from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 
@@ -48,7 +49,10 @@ export function detectOs(): OsInfo {
 
 function fileExistsSync(p: string): boolean {
 	try {
-		require("node:fs").accessSync(p);
+		// Must be a static ESM import. The published bundle is ESM
+		// (`"type":"module"`) with no createRequire shim, so a CommonJS call throws
+		// at runtime and silently made every Linux pkg-manager probe return false.
+		accessSync(p);
 		return true;
 	} catch {
 		return false;

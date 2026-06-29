@@ -1,8 +1,18 @@
 import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
-import type { Bucket } from "../../src/core/config-schema.js";
-import { bucketToFolders, buildDevices, buildFolders } from "../../src/core/syncthing-config.js";
+import type { Bucket, Config } from "../../src/core/config-schema.js";
+import {
+	createRootProfile,
+	rootCodeFolderId,
+	rootConversationFolderId,
+} from "../../src/core/root-profile.js";
+import {
+	bucketForFolderId,
+	bucketToFolders,
+	buildDevices,
+	buildFolders,
+} from "../../src/core/syncthing-config.js";
 
 const ID_A = "AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA-AAAAAAA";
 const ID_B = "BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB-BBBBBBB";
@@ -116,5 +126,44 @@ describe("buildFolders", () => {
 		});
 		expect(out).toHaveLength(3);
 		expect(out.every((f) => f.devices.length === 2)).toBe(true);
+	});
+});
+
+describe("bucketForFolderId", () => {
+	it("maps every folder-id form back to its owning bucket", () => {
+		const profile = createRootProfile({
+			id: "p1",
+			canonicalRoot: "/canon",
+			localRoot: "/local",
+			codeFolders: [{ relativePath: "." }, { relativePath: "proj-a" }],
+			conversations: [{ encodedName: "-local-proj-a", relativePath: "proj-a" }],
+		});
+
+		const versioning = { type: "simple" as const, keep: 10 };
+		const cfg = {
+			machineName: "m",
+			peers: [],
+			buckets: {
+				"claude-config": { enabled: true, paths: ["/tmp/a"], ignore: [], versioning },
+				"code-root": { enabled: true, paths: [], ignore: [], versioning },
+				"claude-conversations": { enabled: true, paths: [], ignore: [], versioning },
+			},
+			globalIgnore: [],
+			metered: false,
+			rootProfile: profile,
+		} as Config;
+
+		// ccsync-<bucket>-<idx>
+		expect(bucketForFolderId("ccsync-claude-config-0", cfg)).toBe("claude-config");
+		// ccsync-root-* (codeFolder ".")
+		expect(bucketForFolderId(rootCodeFolderId(profile, "."), cfg)).toBe("code-root");
+		// ccsync-code-* (nested codeFolder)
+		expect(bucketForFolderId(rootCodeFolderId(profile, "proj-a"), cfg)).toBe("code-root");
+		// ccsync-conv-*
+		expect(
+			bucketForFolderId(rootConversationFolderId(profile, profile.conversations[0]), cfg),
+		).toBe("claude-conversations");
+		// Unknown id -> undefined
+		expect(bucketForFolderId("ccsync-nope-0", cfg)).toBeUndefined();
 	});
 });

@@ -1,4 +1,4 @@
-import type { Bucket, Peer, RootProfile } from "./config-schema.js";
+import type { Bucket, Config, Peer, RootProfile } from "./config-schema.js";
 import {
 	localProjectPath,
 	rootCodeFolderId,
@@ -122,6 +122,50 @@ function folderFromBucket(
 		rescanIntervalS: 3600,
 		fsWatcherEnabled: true,
 	};
+}
+
+/**
+ * Map every ccsync-owned folder id to the config bucket that owns it. Mirrors
+ * `buildFolders` exactly so the id forms round-trip without lossy string parsing
+ * (bucket names contain hyphens, so splitting `ccsync-<bucket>-<idx>` is unsafe).
+ */
+export function folderIdBucketMap(input: {
+	buckets: Record<string, Bucket>;
+	rootProfile?: RootProfile;
+}): Map<string, string> {
+	const map = new Map<string, string>();
+	const { buckets, rootProfile } = input;
+
+	if (rootProfile) {
+		const rootBucket = buckets["code-root"];
+		if (rootBucket?.enabled) {
+			for (const folder of rootCodeFolders(rootProfile)) {
+				map.set(rootCodeFolderId(rootProfile, folder.relativePath), "code-root");
+			}
+		}
+		const conversationBucket = buckets["claude-conversations"];
+		if (conversationBucket?.enabled) {
+			for (const conversation of rootConversations(rootProfile)) {
+				map.set(rootConversationFolderId(rootProfile, conversation), "claude-conversations");
+			}
+		}
+	}
+
+	for (const [name, bucket] of Object.entries(buckets)) {
+		if (rootProfile && (name === "code-root" || name === "claude-conversations")) continue;
+		if (!bucket.enabled || bucket.paths.length === 0) continue;
+		bucket.paths.forEach((p, idx) => {
+			if (isLegacySingleFileBucketPath(p)) return;
+			map.set(`ccsync-${name}-${idx}`, name);
+		});
+	}
+
+	return map;
+}
+
+/** Resolve the owning bucket/project name for a Syncthing folder id, or undefined. */
+export function bucketForFolderId(id: string, cfg: Config): string | undefined {
+	return folderIdBucketMap({ buckets: cfg.buckets, rootProfile: cfg.rootProfile }).get(id);
 }
 
 export function buildDevices(

@@ -1,9 +1,10 @@
 # ccsync Sync Decisions and Findings
 
-Last updated: 2026-06-24
+Last updated: 2026-06-29
 
 ## Decisions
 
+- Run Syncthing from a dedicated home at `~/.ccsync/syncthing` with its own device identity, GUI port, and API key, instead of reusing the platform-default Syncthing a user may run themselves. This keeps ccsync fully isolated; legacy configs that still point `syncthing.homeDir` at the shared home are detected on the next run and offered a one-time re-pair migration onto the dedicated home (a new identity, so peers must re-pair).
 - Keep one selected code root per profile. Conversation folders are still mapped per project because Claude Code keys history by absolute project path.
 - Do not sync the entire `~/.claude` directory as one Syncthing folder. It would overlap with mapped `~/.claude/projects/...` folders and make cross-machine conversation path mapping fragile.
 - Treat `claude agents` as background-agent state, not custom agent definitions. Agent definitions live in `~/.claude/agents`; the background-agent list also needs `~/.claude/tasks`, `~/.claude/jobs`, `~/.claude/session-env`, and `~/.claude/file-history`.

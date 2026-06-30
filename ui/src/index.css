@@ -1,11 +1,20 @@
 @import "tailwindcss";
 
+/*
+ * The dashboard is a light-only design (white cards, slate text). Pin the
+ * color-scheme to light so a dark-mode OS does not paint the page canvas dark
+ * and turn every un-coloured text node (the "ccsync" header, dialog titles)
+ * into light-on-white and invisible. The explicit body bg/color give every
+ * inheriting node a sane default.
+ */
 :root {
-	color-scheme: light dark;
+	color-scheme: light;
 }
 
 body {
 	margin: 0;
+	background-color: #f8fafc; /* slate-50 */
+	color: #0f172a; /* slate-900 */
 	font-family:
 		system-ui,
 		-apple-system,

@@ -22,15 +22,18 @@ describe("DEFAULT_BUCKETS", () => {
 		expect(DEFAULT_BUCKETS["shell-history"].enabled).toBe(false);
 	});
 
-	it("syncs Claude background agent registry by default", () => {
+	it("syncs only the durable task lists, not machine-local runtime state", () => {
 		const bucket = DEFAULT_BUCKETS["claude-agent-state"];
 		expect(bucket.enabled).toBe(true);
-		expect(bucket.paths).toEqual(
+		// Only tasks/ is portable+durable. jobs/session-env/file-history are
+		// machine-local runtime/regenerable state and must NOT be synced — they
+		// were the dominant conflict source at re-pair time.
+		expect(bucket.paths).toEqual([expect.stringMatching(/\.claude[/\\]tasks$/)]);
+		expect(bucket.paths).not.toEqual(
 			expect.arrayContaining([
-				expect.stringMatching(/\.claude[/\\]tasks$/),
-				expect.stringMatching(/\.claude[/\\]jobs$/),
 				expect.stringMatching(/\.claude[/\\]session-env$/),
 				expect.stringMatching(/\.claude[/\\]file-history$/),
+				expect.stringMatching(/\.claude[/\\]jobs$/),
 			]),
 		);
 	});

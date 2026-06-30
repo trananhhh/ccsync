@@ -26,15 +26,29 @@ interface ConflictsPanelProps {
 	count: number;
 }
 
-/** Which copy is newer by mtime — drives the "keep newer" bulk action and badge. */
-function newerSide(c: Conflict): "local" | "remote" {
-	if (c.originalMtime == null) return "remote"; // original gone → the conflict copy is all we have
+type Side = "local" | "remote" | "deleted";
+
+/**
+ * Which side "wins" by recency. A missing original is NOT "remote is newer" —
+ * it means the other machine deleted the file (delete-vs-edit), so we surface it
+ * as its own state and never silently resurrect it.
+ */
+function newerSide(c: Conflict): Side {
+	if (c.originalMtime == null) return "deleted";
 	if (c.conflictMtime == null) return "local";
 	return c.conflictMtime > c.originalMtime ? "remote" : "local";
 }
 
+/**
+ * Action chosen by "Keep newer". For a delete-vs-edit conflict the most recent
+ * intent is the deletion, so we HONOUR it (drop the orphan copy) rather than
+ * resurrecting the file. To restore instead, the user selects the row and picks
+ * "Keep remote" explicitly.
+ */
 function actionForNewer(c: Conflict): ConflictAction {
-	return newerSide(c) === "remote" ? "keep-remote" : "keep-local";
+	const side = newerSide(c);
+	if (side === "deleted") return "keep-local"; // discard orphan copy, honour the delete
+	return side === "remote" ? "keep-remote" : "keep-local";
 }
 
 interface PendingBulk {
@@ -267,6 +281,12 @@ export function ConflictsPanel({ count }: ConflictsPanelProps) {
 														winner={newer === "remote"}
 													/>
 												</div>
+												{newer === "deleted" && (
+													<p className="mt-1 text-amber-600 text-xs">
+														Deleted on the other machine. “Keep newer” discards this orphan copy
+														— select it and choose “Keep remote” to restore instead.
+													</p>
+												)}
 												<div className="mt-2 flex flex-wrap items-center gap-2">
 													<button
 														type="button"

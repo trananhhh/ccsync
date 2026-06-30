@@ -11,6 +11,7 @@ function status(over: Partial<FolderStatus>): FolderStatus {
 		needBytes: 0,
 		needFiles: 0,
 		needDeletes: 0,
+		pullErrors: 0,
 		state: "idle",
 		stateChanged: "",
 		...over,
@@ -39,6 +40,18 @@ describe("waitUntilSynced", () => {
 
 	it("returns timeout while a folder stays pending", async () => {
 		const api = apiWith({ a: status({ needBytes: 42 }) });
+		const result = await waitUntilSynced({ api, folderIds: ["a"] }, { timeoutMs: 60, pollMs: 10 });
+		expect(result).toBe("timeout");
+	});
+
+	it("treats a pending deletion as not yet synced", async () => {
+		const api = apiWith({ a: status({ needDeletes: 1 }) });
+		const result = await waitUntilSynced({ api, folderIds: ["a"] }, { timeoutMs: 60, pollMs: 10 });
+		expect(result).toBe("timeout");
+	});
+
+	it("treats outstanding pull errors as not yet synced", async () => {
+		const api = apiWith({ a: status({ pullErrors: 2 }) });
 		const result = await waitUntilSynced({ api, folderIds: ["a"] }, { timeoutMs: 60, pollMs: 10 });
 		expect(result).toBe("timeout");
 	});

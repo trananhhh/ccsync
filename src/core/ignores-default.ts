@@ -29,6 +29,12 @@ export const GLOBAL_IGNORE_PATTERNS: string[] = [
 	"*.log",
 	".pnpm-store",
 	".yarn",
+	// Claude Code high-churn / regenerable state that otherwise becomes a conflict
+	// magnet across machines (session picker cache, plugin pointers, lock files).
+	"sessions-index.json",
+	"*.wakatime",
+	"bridge-pointer.json",
+	"*.lock",
 ];
 
 export function buildStignore(

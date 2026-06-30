@@ -36,13 +36,20 @@ function abortableDelay(ms: number, signal?: AbortSignal): Promise<void> {
 	});
 }
 
-/** A folder is pending while it still has files or bytes to transfer. */
+/**
+ * A folder is still pending until it has nothing left to pull, nothing left to
+ * delete, and no outstanding pull errors. needDeletes and pullErrors matter for a
+ * safe handoff: a pending deletion or a stuck pull means the peer has not
+ * converged, so "safe to switch" would be a lie if we only checked bytes/files.
+ */
 async function countPending(deps: WaitDeps): Promise<number> {
 	let pending = 0;
 	for (const id of deps.folderIds) {
 		try {
 			const s = await deps.api.folderStatus(id);
-			if (s.needFiles > 0 || s.needBytes > 0) pending++;
+			if (s.needFiles > 0 || s.needBytes > 0 || s.needDeletes > 0 || s.pullErrors > 0) {
+				pending++;
+			}
 		} catch {
 			pending++;
 		}

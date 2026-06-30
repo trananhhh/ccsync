@@ -34,6 +34,20 @@ describe("mergeFolders", () => {
 		expect(merged.map((f) => f.id)).toEqual(["keep-me"]);
 	});
 
+	it("preserves a manual pause on an owned folder set in the native app", () => {
+		const remote = [{ ...folder("ccsync-claude-config-0"), paused: true }];
+		const owned = [folder("ccsync-claude-config-0")];
+		const merged = mergeFolders(remote, owned);
+		expect(merged.find((f) => f.id === "ccsync-claude-config-0")?.paused).toBe(true);
+	});
+
+	it("leaves a never-paused owned folder unpaused", () => {
+		const remote = [folder("ccsync-claude-config-0")];
+		const owned = [folder("ccsync-claude-config-0")];
+		const merged = mergeFolders(remote, owned);
+		expect(merged[0].paused).toBe(false);
+	});
+
 	it("recognises every ccsync folder id prefix", () => {
 		expect(isCcsyncFolder("ccsync-conv-x")).toBe(true);
 		expect(isCcsyncFolder("user-photos")).toBe(false);
@@ -48,13 +62,20 @@ describe("mergeDevices", () => {
 		expect(merged.every((d) => d.paused === true)).toBe(true);
 	});
 
-	it("unpauses owned devices when metered is off", () => {
+	it("preserves a manual device pause when metered is off (native-app pause)", () => {
 		const owned = [device("SELF"), device("PEER")];
 		const remote = [
-			{ ...device("SELF"), paused: true },
+			{ ...device("SELF"), paused: false },
 			{ ...device("PEER"), paused: true },
 		];
 		const merged = mergeDevices(remote, owned, false);
+		expect(merged.find((d) => d.deviceID === "SELF")?.paused).toBe(false);
+		expect(merged.find((d) => d.deviceID === "PEER")?.paused).toBe(true);
+	});
+
+	it("leaves never-paused owned devices unpaused when metered is off", () => {
+		const owned = [device("SELF"), device("PEER")];
+		const merged = mergeDevices(owned, owned, false);
 		expect(merged.every((d) => d.paused === false)).toBe(true);
 	});
 

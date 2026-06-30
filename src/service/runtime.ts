@@ -6,7 +6,9 @@ import * as net from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readConfig } from "../core/config-io.js";
+import type { Config } from "../core/config-schema.js";
 import { createConflictCounter } from "../core/conflicts-scanner.js";
+import { writeMachineInfo } from "../core/machine-registry.js";
 import { ccsyncConfigPath, ccsyncHome } from "../platform/paths.js";
 import { apiFromConfig, createControlServer } from "./server.js";
 import { createStaticHandler } from "./static.js";
@@ -15,6 +17,16 @@ import { ensureServiceToken } from "./token.js";
 
 export function serviceUrlFile(homeDir: string = ccsyncHome()): string {
 	return path.join(homeDir, "service-url");
+}
+
+/** Best-effort: stamp this machine's info into the synced registry. */
+async function publishMachineInfo(cfg: Config): Promise<void> {
+	try {
+		const { myID } = await apiFromConfig(cfg).systemStatus();
+		await writeMachineInfo(cfg, myID);
+	} catch {
+		// daemon not up yet or registry unwritable — visibility data only
+	}
 }
 
 export async function readServiceUrl(homeDir: string = ccsyncHome()): Promise<string | undefined> {
@@ -144,6 +156,9 @@ export async function startControlService(
 	if (cfg?.syncthing) {
 		monitor = new SyncMonitor({ api: apiFromConfig(cfg), configPath, countConflicts });
 		monitor.start();
+		// Publish this machine into the synced registry so peers can show its code
+		// roots. Fire-and-forget — visibility data must never block service start.
+		void publishMachineInfo(cfg);
 	}
 
 	// Lazily start the monitor once a config is written at runtime (browser

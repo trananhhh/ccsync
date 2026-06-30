@@ -43,17 +43,29 @@ export const GLOBAL_IGNORE_PATTERNS: string[] = [
 ];
 
 /**
+ * Build-output directory names that are *usually* regenerable but can legitimately
+ * be real, tracked source in some repos (a committed `dist/`, a `build/` that is
+ * hand-written, etc.). These never get the `(?d)` delete flag: if such a dir is
+ * ignored and its parent is deleted on a peer, Syncthing should wedge with a
+ * visible pull error rather than silently delete what might be irreplaceable
+ * source. A wedge is annoying; a silent delete loses code.
+ */
+const NEVER_AUTO_DELETE = new Set(["dist", "build", "out", "target", ".next", ".nuxt"]);
+
+/**
  * Prefix `(?d)` onto each plain ignore pattern. The `(?d)` flag lets Syncthing
  * delete an otherwise-ignored file when it must remove a directory that was
  * deleted on a peer — without it, a stale lock/tmp/cache file inside a
  * remotely-deleted dir wedges the pull with "directory has been deleted on a
- * remote device but contains ignored files". Negations (`!…`) and patterns that
- * already carry a `(?…)` flag are left untouched.
+ * remote device but contains ignored files". Negations (`!…`), patterns that
+ * already carry a `(?…)` flag, and the ambiguous build-output names in
+ * NEVER_AUTO_DELETE are left untouched.
  */
 function deletable(patterns: string[]): string[] {
 	return patterns.map((p) => {
 		const t = p.trim();
 		if (!t || t.startsWith("!") || t.startsWith("(?")) return p;
+		if (NEVER_AUTO_DELETE.has(t)) return p;
 		return `(?d)${p}`;
 	});
 }

@@ -24,6 +24,7 @@ import {
 import { createInvite as defaultCreateInvite } from "../core/invite-store.js";
 import { encodeInvite } from "../core/invite-token.js";
 import { joinWithToken as defaultJoinWithToken } from "../core/join.js";
+import { readMachines } from "../core/machine-registry.js";
 import { applyAndSave as defaultApplyAndSave } from "../core/mutate.js";
 import { createRootProfile, inviteRootProfile } from "../core/root-profile.js";
 import { applyPause as defaultApplyPause } from "../core/sync-control.js";
@@ -350,6 +351,33 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 						conflictSize: c.conflictSize,
 						originalMtime: c.originalMtime,
 						originalSize: c.originalSize,
+					})),
+				});
+			}
+
+			if (req.method === "GET" && url.pathname === "/api/machines") {
+				const cfg = await read(deps.configPath).catch(() => undefined);
+				if (!cfg) {
+					return send(res, 503, { error: "service not configured" });
+				}
+				const machines = await readMachines();
+				let myId: string | null = null;
+				const online = new Set<string>();
+				try {
+					const api = deps.apiFor(cfg);
+					myId = (await api.systemStatus()).myID;
+					const conns = await api.connections();
+					for (const [id, c] of Object.entries(conns.connections)) {
+						if (c.connected) online.add(id);
+					}
+				} catch {
+					// daemon may be down — fall back to last-synced registry with no live status
+				}
+				return send(res, 200, {
+					machines: machines.map((m) => ({
+						...m,
+						self: myId === m.deviceId,
+						online: myId === m.deviceId || online.has(m.deviceId),
 					})),
 				});
 			}

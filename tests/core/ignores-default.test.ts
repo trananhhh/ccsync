@@ -53,6 +53,19 @@ describe("ignores-default", () => {
 		expect(out).toContain("(?d)*.lock");
 	});
 
+	it("never (?d)-flags ambiguous build-output dirs that could be real source", () => {
+		const out = buildStignore(["build", "dist", "out", "target"]);
+		// these names can legitimately be tracked source — must NOT be auto-deletable
+		expect(out).toContain("\nbuild");
+		expect(out).toContain("\ndist");
+		expect(out).not.toContain("(?d)build");
+		expect(out).not.toContain("(?d)dist");
+		expect(out).not.toContain("(?d)out");
+		expect(out).not.toContain("(?d)target");
+		// node_modules is never source — it keeps the delete flag
+		expect(out).toContain("(?d)node_modules");
+	});
+
 	it("leaves project negations and already-flagged patterns untouched", () => {
 		const out = buildStignore([], [], ["!/keep.txt", "(?i)CaseInsensitive"]);
 		expect(out).toContain("!/keep.txt");

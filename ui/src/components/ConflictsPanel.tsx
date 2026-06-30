@@ -162,10 +162,11 @@ export function ConflictsPanel({ count }: ConflictsPanelProps) {
 			);
 			setConflicts((cs) => cs.filter((c) => !done.has(c.file)));
 			setSelected(new Set());
+			const backupNote = result.resolved > 0 ? ` · backup: ${result.backupDir}` : "";
 			if (result.errors.length > 0) {
-				toast.error(`${result.resolved} resolved, ${result.errors.length} failed`);
+				toast.error(`${result.resolved} resolved, ${result.errors.length} failed${backupNote}`);
 			} else {
-				toast.success(`${pendingBulk.label}: ${result.resolved} resolved`);
+				toast.success(`${pendingBulk.label}: ${result.resolved} resolved${backupNote}`);
 			}
 		} catch (e) {
 			toast.error(e instanceof Error ? e.message : "Bulk resolve failed");

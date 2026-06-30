@@ -13,19 +13,32 @@ export function isCcsyncFolder(id: string): boolean {
 	return id.startsWith(CCSYNC_FOLDER_PREFIX);
 }
 
+/**
+ * Merge the folders we own with any foreign folders already in the remote config.
+ * A manual `paused` flag set on an owned folder (e.g. paused in the native
+ * Syncthing app) is carried over from the remote config — otherwise re-applying
+ * would silently un-pause a folder the user deliberately stopped. Foreign folders
+ * pass through untouched.
+ */
 export function mergeFolders(
 	remote: SyncthingFolder[],
 	owned: SyncthingFolder[],
 ): SyncthingFolder[] {
+	const remotePaused = new Map(
+		remote.filter((f) => isCcsyncFolder(f.id)).map((f) => [f.id, f.paused ?? false]),
+	);
+	const ownedWithPaused = owned.map((f) => ({ ...f, paused: remotePaused.get(f.id) ?? false }));
 	const foreign = remote.filter((f) => !isCcsyncFolder(f.id));
-	return [...foreign, ...owned];
+	return [...foreign, ...ownedWithPaused];
 }
 
 /**
  * Merge the devices we own (self + configured peers) with any foreign devices
- * already present in the remote config. Owned-device pause state is derived from
- * cfg.metered so that re-applying the config never accidentally un-pauses a
- * metered connection. Foreign devices are passed through untouched.
+ * already present in the remote config. When cfg.metered is on, every owned
+ * device is force-paused so re-applying never un-pauses a metered connection.
+ * Otherwise a manual pause (set in the native Syncthing app) is preserved from
+ * the remote config rather than reset to false. Foreign devices pass through
+ * untouched.
  */
 export function mergeDevices(
 	remote: SyncthingDevice[],
@@ -33,7 +46,11 @@ export function mergeDevices(
 	metered: boolean,
 ): SyncthingDevice[] {
 	const ownedIds = new Set(owned.map((d) => d.deviceID));
-	const ownedWithPaused = owned.map((d) => ({ ...d, paused: metered }));
+	const remotePaused = new Map(remote.map((d) => [d.deviceID, d.paused ?? false]));
+	const ownedWithPaused = owned.map((d) => ({
+		...d,
+		paused: metered ? true : (remotePaused.get(d.deviceID) ?? false),
+	}));
 	const foreign = remote.filter((d) => !ownedIds.has(d.deviceID));
 	return [...ownedWithPaused, ...foreign];
 }
@@ -42,6 +59,8 @@ export interface ApplyResult {
 	foldersConfigured: number;
 	devicesConfigured: number;
 	stignoresWritten: number;
+	/** This machine's Syncthing device id, so callers can refresh the registry. */
+	myDeviceId: string;
 }
 
 export async function apply(cfg: Config, injectedApi?: SyncthingApi): Promise<ApplyResult> {
@@ -105,6 +124,7 @@ export async function apply(cfg: Config, injectedApi?: SyncthingApi): Promise<Ap
 		foldersConfigured: folders.length,
 		devicesConfigured: devices.length,
 		stignoresWritten: stignores,
+		myDeviceId: status.myID,
 	};
 }
 

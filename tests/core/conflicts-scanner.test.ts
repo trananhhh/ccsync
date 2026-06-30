@@ -3,7 +3,30 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { Config } from "../../src/core/config-schema.js";
-import { findConflicts, resolveConflictsBulk } from "../../src/core/conflicts-scanner.js";
+import {
+	findConflicts,
+	resolveConflict,
+	resolveConflictsBulk,
+} from "../../src/core/conflicts-scanner.js";
+
+async function listFilesRecursive(dir: string): Promise<string[]> {
+	const out: string[] = [];
+	const walk = async (d: string) => {
+		let entries: import("node:fs").Dirent[];
+		try {
+			entries = await fs.readdir(d, { withFileTypes: true });
+		} catch {
+			return;
+		}
+		for (const e of entries) {
+			const full = path.join(d, e.name);
+			if (e.isDirectory()) await walk(full);
+			else out.push(full);
+		}
+	};
+	await walk(dir);
+	return out;
+}
 
 function bucketCfg(paths: string[], enabled = true): Config {
 	return {
@@ -163,5 +186,53 @@ describe("resolveConflictsBulk", () => {
 		expect(result.resolved).toBe(1);
 		expect(result.errors).toHaveLength(1);
 		expect(result.errors[0].error).toBe("conflict not found");
+	});
+
+	it("returns a backupDir from the bulk result", async () => {
+		await fs.writeFile(path.join(tmp, "a.md"), "old");
+		await fs.writeFile(path.join(tmp, "a.sync-conflict-20260630-140738-AAAAAAA.md"), "new");
+		const cfg = bucketCfg([tmp]);
+		const [a] = await findConflicts(cfg);
+		const result = await resolveConflictsBulk(cfg, [{ file: a.path, action: "skip" }]);
+		expect(result.backupDir).toContain("resolve-backup-");
+	});
+});
+
+describe("resolveConflict backup", () => {
+	let tmp: string;
+
+	beforeEach(async () => {
+		tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-bak-"));
+	});
+
+	afterEach(async () => {
+		await fs.rm(tmp, { recursive: true, force: true });
+	});
+
+	it("backs up the original before keep-remote overwrites it", async () => {
+		await fs.writeFile(path.join(tmp, "a.md"), "original-a");
+		await fs.writeFile(path.join(tmp, "a.sync-conflict-20260630-140738-AAAAAAA.md"), "conflict-a");
+		const [c] = await findConflicts(bucketCfg([tmp]));
+		const backupDir = path.join(tmp, "backups");
+
+		await resolveConflict(c, "keep-remote", backupDir);
+
+		expect(await fs.readFile(path.join(tmp, "a.md"), "utf-8")).toBe("conflict-a");
+		const backups = await listFilesRecursive(backupDir);
+		expect(backups).toHaveLength(1);
+		expect(await fs.readFile(backups[0], "utf-8")).toBe("original-a");
+	});
+
+	it("backs up the conflict copy before keep-local removes it", async () => {
+		await fs.writeFile(path.join(tmp, "b.md"), "keep-b");
+		await fs.writeFile(path.join(tmp, "b.sync-conflict-20260630-140738-BBBBBBB.md"), "drop-b");
+		const [c] = await findConflicts(bucketCfg([tmp]));
+		const backupDir = path.join(tmp, "backups");
+
+		await resolveConflict(c, "keep-local", backupDir);
+
+		const backups = await listFilesRecursive(backupDir);
+		expect(backups).toHaveLength(1);
+		expect(await fs.readFile(backups[0], "utf-8")).toBe("drop-b");
 	});
 });

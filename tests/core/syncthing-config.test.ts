@@ -124,8 +124,10 @@ describe("buildFolders", () => {
 				},
 			},
 		});
-		expect(out).toHaveLength(3);
+		// 3 bucket folders (a, b×2) + the always-on machine registry folder.
+		expect(out).toHaveLength(4);
 		expect(out.every((f) => f.devices.length === 2)).toBe(true);
+		expect(out.some((f) => f.id === "ccsync-registry")).toBe(true);
 	});
 });
 

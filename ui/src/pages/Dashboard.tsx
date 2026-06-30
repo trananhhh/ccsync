@@ -5,6 +5,7 @@ import { BucketList } from "@/components/BucketList";
 import { ConflictsPanel } from "@/components/ConflictsPanel";
 import { HandoffButton } from "@/components/HandoffButton";
 import { MeteredButton } from "@/components/MeteredButton";
+import { MachinesPanel } from "@/components/MachinesPanel";
 import { PendingMachines } from "@/components/PendingMachines";
 import { StatusBar } from "@/components/StatusBar";
 import { Button } from "@/components/ui/button";
@@ -88,6 +89,10 @@ export function Dashboard({ initial }: { initial: State }) {
 					/>
 				</div>
 			)}
+
+			<div className="mt-5">
+				<MachinesPanel />
+			</div>
 
 			<div className="mt-6">
 				<BucketList

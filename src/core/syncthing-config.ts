@@ -1,4 +1,5 @@
 import type { Bucket, Config, Peer, RootProfile } from "./config-schema.js";
+import { registryFolder } from "./machine-registry.js";
 import {
 	localProjectPath,
 	rootCodeFolderId,
@@ -62,6 +63,8 @@ export function buildFolders(input: BuildFoldersInput): SyncthingFolder[] {
 		}
 		out.push(...bucketToFolders(name, bucket, deviceIds));
 	}
+	// Always sync the cross-machine registry (infrastructure, not a user bucket).
+	out.push(registryFolder(deviceIds));
 	return out;
 }
 

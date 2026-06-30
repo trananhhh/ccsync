@@ -109,6 +109,26 @@ export async function getConflicts(): Promise<Conflict[]> {
 	return ((await res.json()) as { conflicts: Conflict[] }).conflicts;
 }
 
+export interface Machine {
+	deviceId: string;
+	machineName: string;
+	canonicalRoot: string | null;
+	codeRoots: string[];
+	conversationsEnabled: boolean;
+	version: string;
+	updatedAt: string;
+	/** True for the machine serving this dashboard. */
+	self: boolean;
+	/** Connected right now (always true for self). */
+	online: boolean;
+}
+
+export async function getMachines(): Promise<Machine[]> {
+	const res = await fetch("/api/machines");
+	if (!res.ok) throw new Error(`GET /api/machines failed: ${res.status}`);
+	return ((await res.json()) as { machines: Machine[] }).machines;
+}
+
 export async function post<T>(path: string, body: unknown): Promise<T> {
 	const res = await fetch(path, {
 		method: "POST",
@@ -138,6 +158,8 @@ export interface BulkResolveResult {
 	ok: boolean;
 	resolved: number;
 	errors: Array<{ file: string; error: string }>;
+	/** Where the losing files were copied before being overwritten/removed. */
+	backupDir: string;
 }
 
 export function resolveConflictsBulk(

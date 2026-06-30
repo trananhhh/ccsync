@@ -28,6 +28,8 @@ export async function handleDiagnose(): Promise<void> {
 	console.log(`  daemon      ${cfg.syncthing.guiAddress}`);
 	console.log(`  home        ${cfg.syncthing.homeDir}`);
 
+	await reportNativeSyncthing(cfg.syncthing.guiAddress);
+
 	console.log("");
 	console.log(pc.bold("Peers"));
 	if (cfg.peers.length === 0) {
@@ -86,6 +88,48 @@ export async function handleDiagnose(): Promise<void> {
 					fileOnlyPaths.slice(0, 3).join(", "),
 			),
 		);
+	}
+}
+
+/**
+ * ccsync runs its OWN Syncthing daemon (dedicated home + private port). If the
+ * user also runs the official Syncthing desktop app it normally drives the
+ * platform daemon on :8384 — a SEPARATE daemon with its own identity. Two
+ * separate daemons syncing the same folders both write deletes/conflicts into the
+ * same tree and corrupt each other's view. Detect a stray :8384 daemon (only when
+ * ccsync itself isn't the one on :8384) and warn.
+ */
+async function reportNativeSyncthing(ccsyncGui: string): Promise<void> {
+	const ccsyncPort = ccsyncGui.split(":").pop();
+	if (ccsyncPort === "8384") return; // ccsync IS the :8384 daemon — nothing separate to collide.
+
+	const found = await probe("http://127.0.0.1:8384/rest/noauth/health");
+	console.log("");
+	console.log(pc.bold("Native Syncthing app"));
+	if (!found) {
+		console.log(pc.dim("  No separate Syncthing detected on :8384 — good."));
+		return;
+	}
+	console.log(
+		pc.yellow(
+			"  ⚠ A separate Syncthing is running on :8384 (likely the desktop app).\n" +
+				`    ccsync drives its own daemon at ${ccsyncGui} with a different device id.\n` +
+				"    Do NOT add or manage ccsync's folders in that app — two daemons syncing the\n" +
+				"    same paths corrupt each other. Pause/resume ccsync folders from ccsync only.",
+		),
+	);
+}
+
+async function probe(url: string): Promise<boolean> {
+	const ctrl = new AbortController();
+	const t = setTimeout(() => ctrl.abort(), 1000);
+	try {
+		await fetch(url, { signal: ctrl.signal });
+		return true; // any HTTP response means something is listening.
+	} catch {
+		return false;
+	} finally {
+		clearTimeout(t);
 	}
 }
 

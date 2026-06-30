@@ -164,6 +164,15 @@ async function configureRootProfile(): Promise<void> {
 	});
 	const root = path.resolve(ans.trim() || suggestedRoot);
 
+	const home = ccsyncHome();
+	if (root === home || isPathInsideRoot(home, root)) {
+		throw new Error(
+			`Code root ${root} is inside ccsync's own home (${home}). ` +
+				"`ccsync reset` wipes that directory, which would delete your synced source. " +
+				"Choose a code root outside ~/.ccsync.",
+		);
+	}
+
 	await fs.mkdir(root, { recursive: true });
 	const rootConversations = await detectClaudeConversationsForRoot(root);
 	const selectedCodeFolders = await pickCodeFolders(

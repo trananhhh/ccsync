@@ -23,7 +23,7 @@ import { handleStatus } from "./commands/status.js";
 import { handleSync } from "./commands/sync.js";
 import { handleToggle } from "./commands/toggle.js";
 import { handleUi } from "./commands/ui.js";
-import { runInteractive } from "./interactive.js";
+import { runDefault, runInteractive } from "./interactive.js";
 import { CLI_VERSION } from "./version.js";
 
 const program = new Command();
@@ -31,13 +31,15 @@ const program = new Command();
 program
 	.name("ccsync")
 	.description(
-		"One-command sync of Claude Code config, conversations, and project working trees between machines.\n\nRun `ccsync` with no arguments — it figures out what to do.",
+		"One-command sync of Claude Code config, conversations, and project working trees between machines.\n\nRun `ccsync` with no arguments to open the web dashboard (add `--tui` for the terminal).",
 	)
 	.version(CLI_VERSION)
 	.option("--fresh", "reset local ccsync config and run setup again")
-	.action((opts: { fresh?: boolean }) => {
+	.option("--tui", "use the terminal dashboard instead of the web UI")
+	.action((opts: { fresh?: boolean; tui?: boolean }) => {
 		if (opts.fresh) return handleSetup({ fresh: true });
-		return runInteractive();
+		// Default opens the web dashboard; `--tui` keeps the terminal flow.
+		return opts.tui ? runInteractive() : runDefault();
 	});
 
 program

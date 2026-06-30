@@ -21,8 +21,25 @@ import { handleConflicts } from "./commands/conflicts.js";
 import { handleRelease } from "./commands/release.js";
 import { handleSetup } from "./commands/setup.js";
 import { handleStatus } from "./commands/status.js";
+import { handleUi } from "./commands/ui.js";
 
 type Cfg = Awaited<ReturnType<typeof readConfig>>;
+
+/**
+ * Default `ccsync` (no subcommand): open the web dashboard, where every action
+ * lives. The one thing that must stay in the terminal is the legacy-home
+ * migration — it changes the device identity and prints a one-time re-pair token,
+ * so we run it first and only hand off to the browser once it is settled. A fresh
+ * machine (no config) and daemon startup are handled by `handleUi` itself.
+ */
+export async function runDefault(): Promise<void> {
+	const cfgPath = ccsyncConfigPath();
+	if (await configExists(cfgPath)) {
+		const cfg = await readConfig(cfgPath);
+		if (cfg.syncthing && (await maybeMigrateLegacyHome(cfg))) return;
+	}
+	await handleUi();
+}
 
 export async function runInteractive(): Promise<void> {
 	const cfgPath = ccsyncConfigPath();

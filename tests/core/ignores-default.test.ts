@@ -45,4 +45,19 @@ describe("ignores-default", () => {
 		const emptyOut = buildStignore(["bucket-only"], [], []);
 		expect(emptyOut).not.toContain("// Project (.ccsyncignore)");
 	});
+
+	it("prefixes (?d) on global + bucket patterns so remote dir deletes are not wedged", () => {
+		const out = buildStignore(["*.lock"], ["extra-global"]);
+		expect(out).toContain("(?d).git/index");
+		expect(out).toContain("(?d)extra-global");
+		expect(out).toContain("(?d)*.lock");
+	});
+
+	it("leaves project negations and already-flagged patterns untouched", () => {
+		const out = buildStignore([], [], ["!/keep.txt", "(?i)CaseInsensitive"]);
+		expect(out).toContain("!/keep.txt");
+		expect(out).not.toContain("(?d)!/keep.txt");
+		expect(out).toContain("(?i)CaseInsensitive");
+		expect(out).not.toContain("(?d)(?i)");
+	});
 });

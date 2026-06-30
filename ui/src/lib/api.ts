@@ -25,6 +25,8 @@ export interface State {
 	metered: boolean;
 	peers: Peer[];
 	buckets: Bucket[];
+	/** Devices waiting to be admitted (joined without a fresh invite token). */
+	pending: Peer[];
 	/** False on a fresh machine → the SPA shows the onboarding wizard. */
 	configured: boolean;
 	/** Whether the Syncthing binary is on PATH (wizard step 1 gating). */
@@ -71,6 +73,21 @@ export interface Conflict {
 	original: string;
 	bucket: string;
 	isHistoryFile: boolean;
+	/** Short device id that produced the conflict copy, or null if unparsable. */
+	sourceDevice: string | null;
+	/** Friendly peer name for sourceDevice when known. */
+	sourceName: string | null;
+	/** Marker timestamp `YYYY-MM-DDTHH:MM:SS`. */
+	conflictTime: string | null;
+	conflictMtime: number | null;
+	conflictSize: number | null;
+	originalMtime: number | null;
+	originalSize: number | null;
+}
+
+export interface ConflictDiff {
+	status: "ok" | "binary" | "too-large" | "missing-original";
+	patch?: string;
 }
 
 export type ConflictAction = "keep-local" | "keep-remote" | "skip";
@@ -115,6 +132,31 @@ export function resolveConflict(
 	action: ConflictAction,
 ): Promise<{ ok: boolean; file: string; action: ConflictAction }> {
 	return post("/api/conflicts/resolve", { file, action });
+}
+
+export interface BulkResolveResult {
+	ok: boolean;
+	resolved: number;
+	errors: Array<{ file: string; error: string }>;
+}
+
+export function resolveConflictsBulk(
+	items: Array<{ file: string; action: ConflictAction }>,
+): Promise<BulkResolveResult> {
+	return post("/api/conflicts/resolve-bulk", { items });
+}
+
+export async function getConflictDiff(file: string): Promise<ConflictDiff> {
+	const res = await fetch(`/api/conflicts/diff?file=${encodeURIComponent(file)}`);
+	if (!res.ok) throw new Error(`GET /api/conflicts/diff failed: ${res.status}`);
+	return (await res.json()) as ConflictDiff;
+}
+
+export function acceptPending(
+	deviceId?: string,
+	all?: boolean,
+): Promise<{ ok: boolean; accepted: number }> {
+	return post("/api/pending/accept", all ? { all: true } : { deviceId });
 }
 
 export interface HandoffResult {

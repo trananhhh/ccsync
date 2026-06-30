@@ -1,10 +1,11 @@
 import { Plus } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { AddMachineDialog } from "@/components/AddMachineDialog";
 import { BucketList } from "@/components/BucketList";
 import { ConflictsPanel } from "@/components/ConflictsPanel";
 import { HandoffButton } from "@/components/HandoffButton";
 import { MeteredButton } from "@/components/MeteredButton";
+import { PendingMachines } from "@/components/PendingMachines";
 import { StatusBar } from "@/components/StatusBar";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/sonner";
@@ -14,13 +15,25 @@ import { type MonitorState, type State, eventsUrl, getState, setMetered, toggleB
 const EMPTY_THROUGHPUT = { up: 0, down: 0 };
 
 export function Dashboard({ initial }: { initial: State }) {
-	// The SSE feed is the single source of truth for live state. Bucket on/off is
-	// the one field it does not carry, so that is reconciled via getState().
+	// The SSE feed is the single source of truth for live state. Bucket on/off and
+	// pending devices it does not carry, so those are reconciled via getState().
 	const { data: live, status } = useEventSource<MonitorState>(eventsUrl(), "state");
 	const [cfg, setCfg] = useState<State>(initial);
 
+	// Poll /api/state so pending-join requests and bucket changes appear without a
+	// manual refresh. Cheap (loopback) and paused only matters at the daemon.
+	useEffect(() => {
+		const id = setInterval(() => {
+			getState()
+				.then(setCfg)
+				.catch(() => {});
+		}, 5000);
+		return () => clearInterval(id);
+	}, []);
+
 	const folders = live?.folders ?? [];
 	const devices = live?.devices ?? [];
+	const peersOnline = devices.filter((d) => d.connected).length;
 	const metered = live?.metered ?? cfg.metered;
 	const conflicts = live?.conflicts ?? 0;
 
@@ -67,8 +80,22 @@ export function Dashboard({ initial }: { initial: State }) {
 				/>
 			</div>
 
+			{cfg.pending.length > 0 && (
+				<div className="mt-5">
+					<PendingMachines
+						pending={cfg.pending}
+						onAccepted={() => getState().then(setCfg).catch(() => {})}
+					/>
+				</div>
+			)}
+
 			<div className="mt-6">
-				<BucketList buckets={cfg.buckets} folders={folders} onToggle={onToggleBucket} />
+				<BucketList
+					buckets={cfg.buckets}
+					folders={folders}
+					peersOnline={peersOnline}
+					onToggle={onToggleBucket}
+				/>
 			</div>
 
 			<div className="mt-5 flex flex-wrap items-center gap-3">

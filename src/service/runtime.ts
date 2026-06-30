@@ -6,6 +6,7 @@ import * as net from "node:net";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { readConfig } from "../core/config-io.js";
+import { createConflictCounter } from "../core/conflicts-scanner.js";
 import { ccsyncConfigPath, ccsyncHome } from "../platform/paths.js";
 import { apiFromConfig, createControlServer } from "./server.js";
 import { createStaticHandler } from "./static.js";
@@ -135,10 +136,13 @@ export async function startControlService(
 	// SyncMonitor degrades gracefully (its polls fail and it rebaselines) rather
 	// than crashing, but the live feed is stale until a restart picks up the new
 	// homeDir/apiKey.
+	// One cached counter shared by every monitor instance so a `migrate`-driven
+	// rebuild keeps the warm cache instead of re-walking the tree from scratch.
+	const countConflicts = createConflictCounter();
 	const cfg = await readConfig(configPath).catch(() => undefined);
 	let monitor: SyncMonitor | undefined;
 	if (cfg?.syncthing) {
-		monitor = new SyncMonitor({ api: apiFromConfig(cfg), configPath });
+		monitor = new SyncMonitor({ api: apiFromConfig(cfg), configPath, countConflicts });
 		monitor.start();
 	}
 
@@ -149,7 +153,7 @@ export async function startControlService(
 		if (monitor) return monitor;
 		const fresh = await readConfig(configPath).catch(() => undefined);
 		if (!fresh?.syncthing) return undefined;
-		monitor = new SyncMonitor({ api: apiFromConfig(fresh), configPath });
+		monitor = new SyncMonitor({ api: apiFromConfig(fresh), configPath, countConflicts });
 		monitor.start();
 		return monitor;
 	}

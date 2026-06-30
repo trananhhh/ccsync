@@ -733,3 +733,138 @@ describe("control server metered integration (real apply round-trip)", () => {
 		expect(finalPut.devices.every((d) => d.paused === true)).toBe(true);
 	});
 });
+
+describe("control server conflict + pending routes", () => {
+	let tmp: string;
+	let confServer: http.Server;
+
+	afterEach(async () => {
+		await new Promise<void>((r) => confServer.close(() => r()));
+		if (tmp) await fs.rm(tmp, { recursive: true, force: true });
+	});
+
+	async function startWith(over: Partial<ControlServerDeps>): Promise<string> {
+		confServer = createControlServer({
+			token: TOKEN,
+			configPath: "/tmp/x.yaml",
+			apiFor: () =>
+				({
+					getConfig: async () => ({ version: 1, folders: [], devices: [] }),
+					putConfig: async () => {},
+				}) as unknown as SyncthingApi,
+			readConfig: async () => saved ?? cfg(),
+			applyAndSave: async (_p, mutate) => {
+				const c = saved ?? cfg();
+				mutate(c);
+				saved = c;
+				return { foldersConfigured: 0, devicesConfigured: 1, stignoresWritten: 0 };
+			},
+			applyPause: async () => {},
+			...over,
+		});
+		server = confServer; // share so the top-level afterEach is a no-op double close
+		return new Promise<string>((resolve) => {
+			confServer.listen(0, "127.0.0.1", () => {
+				const { port } = confServer.address() as AddressInfo;
+				resolve(`http://127.0.0.1:${port}`);
+			});
+		});
+	}
+
+	function cfgWithBucket(p: string): Config {
+		return {
+			machineName: "m",
+			peers: [],
+			buckets: {
+				"claude-config": {
+					enabled: true,
+					paths: [p],
+					ignore: [],
+					versioning: { type: "simple", keep: 10 },
+				},
+			},
+			globalIgnore: [],
+			metered: false,
+		} as Config;
+	}
+
+	it("GET /api/conflicts returns metadata (timestamp, size, source device)", async () => {
+		tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-srv-"));
+		await fs.writeFile(path.join(tmp, "note.md"), "local");
+		await fs.writeFile(path.join(tmp, "note.sync-conflict-20260630-140738-NPH765F.md"), "remote");
+		saved = cfgWithBucket(tmp);
+		const base = await startWith({ readConfig: async () => saved ?? cfg() });
+
+		const res = await fetch(`${base}/api/conflicts`, { headers: { "X-Ccsync-Token": TOKEN } });
+		const body = (await res.json()) as {
+			conflicts: Array<{ sourceDevice: string; conflictTime: string; conflictSize: number }>;
+		};
+		expect(body.conflicts).toHaveLength(1);
+		expect(body.conflicts[0].sourceDevice).toBe("NPH765F");
+		expect(body.conflicts[0].conflictTime).toBe("2026-06-30T14:07:38");
+		expect(body.conflicts[0].conflictSize).toBe(6);
+	});
+
+	it("GET /api/conflicts/diff returns a unified patch", async () => {
+		tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-srv-"));
+		await fs.writeFile(path.join(tmp, "n.md"), "one\ntwo\n");
+		const conflict = path.join(tmp, "n.sync-conflict-20260630-140738-AAAAAAA.md");
+		await fs.writeFile(conflict, "one\nTWO\n");
+		saved = cfgWithBucket(tmp);
+		const base = await startWith({ readConfig: async () => saved ?? cfg() });
+
+		const res = await fetch(`${base}/api/conflicts/diff?file=${encodeURIComponent(conflict)}`, {
+			headers: { "X-Ccsync-Token": TOKEN },
+		});
+		const body = (await res.json()) as { status: string; patch: string };
+		expect(body.status).toBe("ok");
+		expect(body.patch).toContain("+TWO");
+	});
+
+	it("POST /api/conflicts/resolve-bulk resolves many at once", async () => {
+		tmp = await fs.mkdtemp(path.join(os.tmpdir(), "ccsync-srv-"));
+		await fs.writeFile(path.join(tmp, "a.md"), "old");
+		const ca = path.join(tmp, "a.sync-conflict-20260630-140738-AAAAAAA.md");
+		await fs.writeFile(ca, "new");
+		saved = cfgWithBucket(tmp);
+		const base = await startWith({ readConfig: async () => saved ?? cfg() });
+
+		const res = await fetch(`${base}/api/conflicts/resolve-bulk`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({ items: [{ file: ca, action: "keep-remote" }] }),
+		});
+		const body = (await res.json()) as { ok: boolean; resolved: number };
+		expect(body.resolved).toBe(1);
+		expect(await fs.readFile(path.join(tmp, "a.md"), "utf-8")).toBe("new");
+	});
+
+	it("POST /api/pending/accept admits a waiting device", async () => {
+		saved = {
+			machineName: "m",
+			peers: [],
+			buckets: {},
+			globalIgnore: [],
+			metered: false,
+			syncthing: { homeDir: "/tmp/h", guiAddress: "127.0.0.1:8384", apiKey: "k" },
+		} as unknown as Config;
+		const base = await startWith({
+			readConfig: async () => saved ?? cfg(),
+			apiFor: () =>
+				({
+					getConfig: async () => ({ version: 1, folders: [], devices: [] }),
+					putConfig: async () => {},
+					request: async () => ({ [PEER_ID]: { name: "newbox", address: "1.2.3.4", time: "t" } }),
+				}) as unknown as SyncthingApi,
+		});
+
+		const res = await fetch(`${base}/api/pending/accept`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json", "X-Ccsync-Token": TOKEN },
+			body: JSON.stringify({ deviceId: PEER_ID }),
+		});
+		const body = (await res.json()) as { ok: boolean; accepted: number };
+		expect(body.accepted).toBe(1);
+		expect(saved?.peers.some((p) => p.deviceId === PEER_ID)).toBe(true);
+	});
+});

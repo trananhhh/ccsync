@@ -7,6 +7,18 @@ export interface ConflictFile {
 	original: string;
 	bucket: string;
 	isHistoryFile: boolean;
+	/** Short device id (Syncthing's 7-char prefix) that produced the conflict copy. */
+	sourceDevice: string | null;
+	/** Marker timestamp as `YYYY-MM-DDTHH:MM:SS` (when Syncthing wrote the copy). */
+	conflictTime: string | null;
+	/** mtime of the conflict copy, ms epoch. null if it vanished mid-scan. */
+	conflictMtime: number | null;
+	/** size of the conflict copy in bytes. */
+	conflictSize: number | null;
+	/** mtime of the surviving original on disk, ms epoch. null if it is gone. */
+	originalMtime: number | null;
+	/** size of the surviving original in bytes. null if it is gone. */
+	originalSize: number | null;
 }
 
 export type ConflictAction = "keep-local" | "keep-remote" | "skip";
@@ -26,7 +38,63 @@ export async function resolveConflict(c: ConflictFile, action: ConflictAction): 
 	// "skip": intentionally no-op.
 }
 
-const CONFLICT_RE = /\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]+/;
+export interface BulkResolveResult {
+	resolved: number;
+	errors: Array<{ file: string; error: string }>;
+}
+
+/**
+ * Resolve many conflicts in one pass. Re-scans first so callers can never pass an
+ * arbitrary path — only files the scanner currently reports as conflicts are
+ * touched. Each item resolves independently; a failure on one is recorded and the
+ * rest continue.
+ */
+export async function resolveConflictsBulk(
+	cfg: Config,
+	items: Array<{ file: string; action: ConflictAction }>,
+): Promise<BulkResolveResult> {
+	const known = new Map((await findConflicts(cfg)).map((c) => [c.path, c]));
+	let resolved = 0;
+	const errors: BulkResolveResult["errors"] = [];
+	for (const it of items) {
+		const c = known.get(it.file);
+		if (!c) {
+			errors.push({ file: it.file, error: "conflict not found" });
+			continue;
+		}
+		try {
+			await resolveConflict(c, it.action);
+			resolved += 1;
+		} catch (e) {
+			errors.push({ file: it.file, error: e instanceof Error ? e.message : String(e) });
+		}
+	}
+	return { resolved, errors };
+}
+
+const CONFLICT_RE = /\.sync-conflict-(\d{8})-(\d{6})-([A-Z0-9]+)/;
+
+/** Directories that never hold meaningful conflicts but are expensive to walk. */
+const SKIP_DIRS = new Set([
+	".git",
+	"node_modules",
+	".stversions",
+	"dist",
+	"build",
+	"out",
+	".next",
+	".nuxt",
+	".turbo",
+	".cache",
+	"target",
+	"vendor",
+	".venv",
+	"venv",
+	"__pycache__",
+	".gradle",
+	".idea",
+	"coverage",
+]);
 
 export async function findConflicts(cfg: Config): Promise<ConflictFile[]> {
 	const out: ConflictFile[] = [];
@@ -36,7 +104,34 @@ export async function findConflicts(cfg: Config): Promise<ConflictFile[]> {
 			out.push(...(await scan(p, name)));
 		}
 	}
-	return out;
+	return Promise.all(out.map(enrich));
+}
+
+/**
+ * A conflict counter that caches its result for `ttlMs`. The SSE monitor calls
+ * this on every Syncthing event batch — during an active sync that is many times
+ * a second — and each uncached call walks the entire tree (code-root can be
+ * gigabytes). The cache collapses those into one scan per window; concurrent
+ * callers share the in-flight scan.
+ */
+export function createConflictCounter(ttlMs = 20_000): (cfg: Config) => Promise<number> {
+	let cachedAt = 0;
+	let value = 0;
+	let inFlight: Promise<number> | null = null;
+	return (cfg) => {
+		if (Date.now() - cachedAt < ttlMs) return Promise.resolve(value);
+		if (inFlight) return inFlight;
+		inFlight = findConflicts(cfg)
+			.then((cs) => {
+				value = cs.length;
+				cachedAt = Date.now();
+				return value;
+			})
+			.finally(() => {
+				inFlight = null;
+			});
+		return inFlight;
+	};
 }
 
 async function scan(root: string, bucket: string): Promise<ConflictFile[]> {
@@ -54,7 +149,7 @@ async function scan(root: string, bucket: string): Promise<ConflictFile[]> {
 		for (const e of entries) {
 			const full = path.join(dir, e.name);
 			if (e.isDirectory()) {
-				if (e.name === ".git" || e.name === "node_modules" || e.name === ".stversions") continue;
+				if (SKIP_DIRS.has(e.name)) continue;
 				stack.push(full);
 			} else if (looksLikeConflict(full)) {
 				out.push(toConflict(full, bucket));
@@ -70,9 +165,49 @@ function looksLikeConflict(p: string): boolean {
 
 function toConflict(p: string, bucket: string): ConflictFile {
 	const base = path.basename(p);
+	const match = base.match(CONFLICT_RE);
 	const original = base.replace(CONFLICT_RE, "");
 	const originalPath = path.join(path.dirname(p), original);
 	const isHistoryFile =
 		/\.(zsh|bash)_history|history\.jsonl/.test(original) || original === "history.jsonl";
-	return { path: p, original: originalPath, bucket, isHistoryFile };
+	return {
+		path: p,
+		original: originalPath,
+		bucket,
+		isHistoryFile,
+		sourceDevice: match ? match[3] : null,
+		conflictTime: match ? markerTimestamp(match[1], match[2]) : null,
+		conflictMtime: null,
+		conflictSize: null,
+		originalMtime: null,
+		originalSize: null,
+	};
+}
+
+/** Turn marker `YYYYMMDD` + `HHMMSS` into a readable `YYYY-MM-DDTHH:MM:SS`. */
+function markerTimestamp(date: string, time: string): string {
+	const d = `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`;
+	const t = `${time.slice(0, 2)}:${time.slice(2, 4)}:${time.slice(4, 6)}`;
+	return `${d}T${t}`;
+}
+
+/** Fill in mtime/size for both copies so the UI can show what differs and which is newer. */
+async function enrich(c: ConflictFile): Promise<ConflictFile> {
+	const [conflict, original] = await Promise.all([statOrNull(c.path), statOrNull(c.original)]);
+	return {
+		...c,
+		conflictMtime: conflict ? conflict.mtimeMs : null,
+		conflictSize: conflict ? conflict.size : null,
+		originalMtime: original ? original.mtimeMs : null,
+		originalSize: original ? original.size : null,
+	};
+}
+
+async function statOrNull(p: string): Promise<{ mtimeMs: number; size: number } | null> {
+	try {
+		const s = await fs.stat(p);
+		return { mtimeMs: s.mtimeMs, size: s.size };
+	} catch {
+		return null;
+	}
 }

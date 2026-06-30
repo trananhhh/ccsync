@@ -13,7 +13,14 @@ import {
 	writeConfig as defaultWriteConfig,
 } from "../core/config-io.js";
 import type { Config } from "../core/config-schema.js";
-import { type ConflictAction, findConflicts, resolveConflict } from "../core/conflicts-scanner.js";
+import { PeerSchema } from "../core/config-schema.js";
+import { conflictDiff } from "../core/conflict-diff.js";
+import {
+	type ConflictAction,
+	findConflicts,
+	resolveConflict,
+	resolveConflictsBulk,
+} from "../core/conflicts-scanner.js";
 import { createInvite as defaultCreateInvite } from "../core/invite-store.js";
 import { encodeInvite } from "../core/invite-token.js";
 import { joinWithToken as defaultJoinWithToken } from "../core/join.js";
@@ -26,6 +33,7 @@ import {
 	ensureDaemonRunning as defaultEnsureDaemonRunning,
 } from "../core/syncthing-bootstrap.js";
 import { buildFolders } from "../core/syncthing-config.js";
+import { fetchPending } from "../core/syncthing-pending.js";
 import { which } from "../lib/exec.js";
 import { ensureSyncthing as defaultEnsureSyncthing } from "../platform/installer.js";
 import { browseDirectory } from "./folders.js";
@@ -84,6 +92,13 @@ interface PauseBody {
 interface ResolveBody {
 	file: string;
 	action: ConflictAction;
+}
+interface BulkResolveBody {
+	items: Array<{ file: string; action: ConflictAction }>;
+}
+interface AcceptBody {
+	deviceId?: string;
+	all?: boolean;
 }
 interface HandoffBody {
 	timeoutMs?: number;
@@ -228,6 +243,20 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 			});
 	}
 
+	/** Pending devices for `/api/state`, as `{ deviceId, name }`. Never throws. */
+	async function loadPending(cfg: Config): Promise<Array<{ deviceId: string; name: string }>> {
+		if (!cfg.syncthing) return [];
+		try {
+			const pending = await fetchPending(deps.apiFor(cfg));
+			return Object.entries(pending).map(([deviceId, d]) => ({
+				deviceId,
+				name: d.name || deviceId.slice(0, 7),
+			}));
+		} catch {
+			return [];
+		}
+	}
+
 	return http.createServer(async (req, res) => {
 		const url = new URL(req.url ?? "/", "http://127.0.0.1");
 		const isWrite = req.method === "POST";
@@ -267,6 +296,9 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 						pairing: isPairingActive(),
 					});
 				}
+				// Devices waiting to be admitted (joined without a fresh invite token).
+				// Surfaced here so the dashboard can offer a one-click accept.
+				const pending = isConfigured(cfg) ? await loadPending(cfg) : [];
 				return send(res, 200, {
 					machineName: cfg.machineName,
 					metered: cfg.metered,
@@ -276,6 +308,7 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 						enabled: b.enabled,
 						paths: b.paths,
 					})),
+					pending,
 					configured: isConfigured(cfg),
 					syncthingInstalled,
 					pairing: isPairingActive(),
@@ -302,12 +335,21 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 					return send(res, 503, { error: "service not configured" });
 				}
 				const conflicts = await findConflicts(cfg);
+				// Map the marker's short device id to a friendly peer name when we know it.
+				const peerNames = new Map(cfg.peers.map((p) => [p.deviceId.slice(0, 7), p.name] as const));
 				return send(res, 200, {
 					conflicts: conflicts.map((c) => ({
 						file: c.path,
 						original: c.original,
 						bucket: c.bucket,
 						isHistoryFile: c.isHistoryFile,
+						sourceDevice: c.sourceDevice,
+						sourceName: c.sourceDevice ? (peerNames.get(c.sourceDevice) ?? null) : null,
+						conflictTime: c.conflictTime,
+						conflictMtime: c.conflictMtime,
+						conflictSize: c.conflictSize,
+						originalMtime: c.originalMtime,
+						originalSize: c.originalSize,
 					})),
 				});
 			}
@@ -369,6 +411,68 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 				}
 				await resolveConflict(match, body.action);
 				return send(res, 200, { ok: true, file: body.file, action: body.action });
+			}
+
+			if (req.method === "POST" && url.pathname === "/api/conflicts/resolve-bulk") {
+				const body = await readJson<BulkResolveBody>(req);
+				if (!Array.isArray(body.items) || body.items.length === 0) {
+					return send(res, 400, { error: "items must be a non-empty array" });
+				}
+				const bad = body.items.find((it) => !RESOLVE_ACTIONS.includes(it.action));
+				if (bad) {
+					return send(res, 400, { error: `invalid action: ${bad.action}` });
+				}
+				const cfg = await read(deps.configPath);
+				// resolveConflictsBulk re-scans and only touches files the scanner
+				// reports, so an arbitrary path in the request can never be unlinked.
+				const result = await resolveConflictsBulk(cfg, body.items);
+				return send(res, 200, { ok: true, ...result });
+			}
+
+			if (req.method === "GET" && url.pathname === "/api/conflicts/diff") {
+				const file = url.searchParams.get("file");
+				if (!file) return send(res, 400, { error: "file is required" });
+				const cfg = await read(deps.configPath).catch(() => undefined);
+				if (!cfg) return send(res, 503, { error: "service not configured" });
+				// Only diff files the scanner currently reports — never read an
+				// arbitrary path supplied by the request.
+				const match = (await findConflicts(cfg)).find((c) => c.path === file);
+				if (!match) return send(res, 404, { error: "conflict not found" });
+				const diff = await conflictDiff(match.path, match.original);
+				return send(res, 200, diff);
+			}
+
+			if (req.method === "POST" && url.pathname === "/api/pending/accept") {
+				const body = await readJson<AcceptBody>(req);
+				const cfg = await read(deps.configPath).catch(() => undefined);
+				if (!cfg?.syncthing) {
+					return send(res, 503, { error: "service not configured" });
+				}
+				const api = deps.apiFor(cfg);
+				const pending = await fetchPending(api);
+				const wanted = body.all ? Object.keys(pending) : body.deviceId ? [body.deviceId] : [];
+				const ids = wanted.filter((id) => pending[id]);
+				if (ids.length === 0) {
+					return send(res, 404, { error: "no matching pending device" });
+				}
+				const result = await applyAndSaveFn(
+					deps.configPath,
+					(c) => {
+						for (const id of ids) {
+							if (c.peers.some((p) => p.deviceId === id)) continue;
+							c.peers.push(
+								PeerSchema.parse({
+									deviceId: id,
+									name: pending[id].name || id.slice(0, 7),
+									addresses: ["dynamic"],
+									introducer: false,
+								}),
+							);
+						}
+					},
+					{ api },
+				);
+				return send(res, 200, { ok: true, accepted: ids.length, result });
 			}
 
 			if (req.method === "POST" && url.pathname === "/api/setup/init") {

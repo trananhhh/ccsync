@@ -36,7 +36,12 @@ describe("applyAndSave", () => {
 				},
 				applyFn: async () => {
 					order.push("apply");
-					return { foldersConfigured: 0, devicesConfigured: 1, stignoresWritten: 0 };
+					return {
+						foldersConfigured: 0,
+						devicesConfigured: 1,
+						stignoresWritten: 0,
+						myDeviceId: "test-device",
+					};
 				},
 			},
 		);

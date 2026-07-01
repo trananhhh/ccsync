@@ -50,7 +50,12 @@ function start() {
 			const c = saved ?? cfg();
 			mutate(c);
 			saved = c;
-			return { foldersConfigured: 0, devicesConfigured: 1, stignoresWritten: 0 };
+			return {
+				foldersConfigured: 0,
+				devicesConfigured: 1,
+				stignoresWritten: 0,
+				myDeviceId: "test-device",
+			};
 		},
 		applyPause: async () => {},
 	});
@@ -422,7 +427,12 @@ describe("control server fresh-machine bootstrap + lazy monitor", () => {
 			}),
 			apply: async (c: Config) => {
 				applied.push(c);
-				return { foldersConfigured: 1, devicesConfigured: 1, stignoresWritten: 0 };
+				return {
+					foldersConfigured: 1,
+					devicesConfigured: 1,
+					stignoresWritten: 0,
+					myDeviceId: "test-device",
+				};
 			},
 			ensureDaemonRunning: async () => "already-running" as const,
 			detectSyncthing: async () => true,
@@ -757,7 +767,12 @@ describe("control server conflict + pending routes", () => {
 				const c = saved ?? cfg();
 				mutate(c);
 				saved = c;
-				return { foldersConfigured: 0, devicesConfigured: 1, stignoresWritten: 0 };
+				return {
+					foldersConfigured: 0,
+					devicesConfigured: 1,
+					stignoresWritten: 0,
+					myDeviceId: "test-device",
+				};
 			},
 			applyPause: async () => {},
 			...over,

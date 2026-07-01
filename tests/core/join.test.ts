@@ -32,7 +32,12 @@ function deps(saved: { cfg: Config }) {
 			},
 			apply: async (c: Config): Promise<ApplyResult> => {
 				applied.push(c);
-				return { foldersConfigured: 2, devicesConfigured: 1, stignoresWritten: 0 };
+				return {
+					foldersConfigured: 2,
+					devicesConfigured: 1,
+					stignoresWritten: 0,
+					myDeviceId: "test-device",
+				};
 			},
 			ensureSyncthing: async () => ({ installed: true, path: "/usr/bin/syncthing", message: "ok" }),
 			ensureDaemonRunning: async () => "already-running" as const,

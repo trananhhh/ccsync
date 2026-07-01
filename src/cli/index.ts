@@ -7,6 +7,7 @@ import { handleDiagnose } from "./commands/diagnose.js";
 import { handleId } from "./commands/id.js";
 import { handleInit } from "./commands/init.js";
 import { handleJoin } from "./commands/join.js";
+import { handleMode } from "./commands/mode.js";
 import { handlePair } from "./commands/pair.js";
 import {
 	handleProjectAdd,
@@ -76,6 +77,17 @@ program
 
 program.command("ui").description("Open the ccsync dashboard in your browser").action(handleUi);
 
+program
+	.command("mode [mode]")
+	.description("Show or set sync mode: realtime (continuous) or manual (on-demand)")
+	.action((mode?: string) => handleMode(mode));
+
+program
+	.command("sync")
+	.description("Sync now — in manual mode: resume, wait for 100%, then re-pause")
+	.option("--timeout <seconds>", "manual-mode wait budget before giving up", "120")
+	.action((opts: { timeout?: string }) => handleSync(opts));
+
 const service = program.command("service").description("Manage the Syncthing daemon");
 service.command("start").description("Start the Syncthing daemon").action(handleServiceStart);
 service.command("stop").description("Stop the Syncthing daemon").action(handleServiceStop);
@@ -126,8 +138,9 @@ advanced
 
 advanced
 	.command("sync")
-	.description("Force an immediate rescan on every bucket (pull-like)")
-	.action(handleSync);
+	.description("Sync now (alias of top-level `sync`)")
+	.option("--timeout <seconds>", "manual-mode wait budget before giving up", "120")
+	.action((opts: { timeout?: string }) => handleSync(opts));
 
 advanced
 	.command("toggle <bucket>")

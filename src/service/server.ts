@@ -27,7 +27,7 @@ import { joinWithToken as defaultJoinWithToken } from "../core/join.js";
 import { readMachines } from "../core/machine-registry.js";
 import { applyAndSave as defaultApplyAndSave } from "../core/mutate.js";
 import { createRootProfile, inviteRootProfile } from "../core/root-profile.js";
-import { applyPause as defaultApplyPause } from "../core/sync-control.js";
+import { applyPause as defaultApplyPause, setOwnedDevicesPaused } from "../core/sync-control.js";
 import { SyncthingApi } from "../core/syncthing-api.js";
 import {
 	bootstrapFreshHome as defaultBootstrapFreshHome,
@@ -39,6 +39,7 @@ import { which } from "../lib/exec.js";
 import { ensureSyncthing as defaultEnsureSyncthing } from "../platform/installer.js";
 import { browseDirectory } from "./folders.js";
 import { waitUntilSynced } from "./handoff.js";
+import { ownedDeviceIds, runOnDemandSync } from "./on-demand.js";
 import { openSse } from "./sse.js";
 import type { MonitorState } from "./sync-monitor.js";
 
@@ -303,6 +304,7 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 				return send(res, 200, {
 					machineName: cfg.machineName,
 					metered: cfg.metered,
+					syncMode: cfg.syncMode,
 					peers: cfg.peers.map((p) => ({ name: p.name, deviceId: p.deviceId })),
 					buckets: Object.entries(cfg.buckets).map(([name, b]) => ({
 						name,
@@ -389,6 +391,67 @@ export function createControlServer(deps: ControlServerDeps): http.Server {
 					c.buckets[body.target].enabled = body.on;
 				});
 				return send(res, 200, { ok: true, result });
+			}
+
+			if (req.method === "POST" && url.pathname === "/api/sync-mode") {
+				const body = await readJson<{ mode: string }>(req);
+				if (body.mode !== "realtime" && body.mode !== "manual") {
+					return send(res, 400, { error: 'mode must be "realtime" or "manual"' });
+				}
+				const mode = body.mode;
+				const cfg = await read(deps.configPath);
+				const api = deps.apiFor(cfg);
+				if (mode === "realtime") {
+					// Resume owned devices before apply preserves their paused state.
+					const sys = await api.systemStatus();
+					await api.putConfig(
+						setOwnedDevicesPaused(
+							await api.getConfig(),
+							ownedDeviceIds(sys.myID, cfg.peers),
+							false,
+						),
+					);
+				}
+				await applyAndSaveFn(
+					deps.configPath,
+					(c) => {
+						c.syncMode = mode;
+					},
+					{ api },
+				);
+				return send(res, 200, { ok: true, syncMode: mode });
+			}
+
+			if (req.method === "POST" && url.pathname === "/api/sync-now") {
+				const cfg = await read(deps.configPath);
+				const api = deps.apiFor(cfg);
+				const sys = await api.systemStatus();
+				const folders = buildFolders({
+					machineName: cfg.machineName,
+					myDeviceId: sys.myID,
+					buckets: cfg.buckets,
+					peers: cfg.peers,
+					rootProfile: cfg.rootProfile,
+				});
+				const folderIds = folders.map((f) => f.id);
+				if (cfg.syncMode === "manual") {
+					const result = await runOnDemandSync({
+						api,
+						ownedIds: ownedDeviceIds(sys.myID, cfg.peers),
+						folderIds,
+						timeoutMs: 120_000,
+					});
+					return send(res, 200, { ok: true, result });
+				}
+				// Realtime: devices already sync; a rescan is enough to nudge them.
+				for (const id of folderIds) {
+					try {
+						await api.scan(id);
+					} catch {
+						// folder may be unknown; skip
+					}
+				}
+				return send(res, 200, { ok: true, result: "rescanned" });
 			}
 
 			if (req.method === "POST" && url.pathname === "/api/metered") {

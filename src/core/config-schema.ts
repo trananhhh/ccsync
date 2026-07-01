@@ -71,6 +71,13 @@ export const ConfigSchema = z.object({
 	buckets: z.record(z.string(), BucketSchema).default({}),
 	globalIgnore: z.array(z.string()).default([]),
 	metered: z.boolean().default(false),
+	/**
+	 * "realtime" (the default when unset): Syncthing propagates changes
+	 * continuously. "manual": owned devices stay paused so nothing transfers until
+	 * an explicit `ccsync sync` (resume → wait for 100% → pause again). Left
+	 * optional so older configs read back as undefined and are treated as realtime.
+	 */
+	syncMode: z.enum(["realtime", "manual"]).optional(),
 	rootProfile: RootProfileSchema.optional(),
 });
 

@@ -20,9 +20,13 @@ export interface Peer {
 	deviceId: string;
 }
 
+export type SyncMode = "realtime" | "manual";
+
 export interface State {
 	machineName: string;
 	metered: boolean;
+	/** "realtime" (continuous) or "manual" (paused until an explicit sync). */
+	syncMode?: SyncMode;
 	peers: Peer[];
 	buckets: Bucket[];
 	/** Devices waiting to be admitted (joined without a fresh invite token). */
@@ -141,6 +145,14 @@ export async function post<T>(path: string, body: unknown): Promise<T> {
 
 export function toggleBucket(target: string, on: boolean): Promise<{ ok: boolean }> {
 	return post("/api/toggle", { target, on });
+}
+
+export function setSyncMode(mode: SyncMode): Promise<{ ok: boolean; syncMode: SyncMode }> {
+	return post("/api/sync-mode", { mode });
+}
+
+export function syncNow(): Promise<{ ok: boolean; result: string }> {
+	return post("/api/sync-now", {});
 }
 
 export function setMetered(on: boolean): Promise<{ ok: boolean; metered: boolean }> {

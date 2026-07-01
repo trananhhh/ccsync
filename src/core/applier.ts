@@ -34,22 +34,22 @@ export function mergeFolders(
 
 /**
  * Merge the devices we own (self + configured peers) with any foreign devices
- * already present in the remote config. When cfg.metered is on, every owned
- * device is force-paused so re-applying never un-pauses a metered connection.
- * Otherwise a manual pause (set in the native Syncthing app) is preserved from
- * the remote config rather than reset to false. Foreign devices pass through
- * untouched.
+ * already present in the remote config. When `pauseOwned` is set (metered
+ * connection, or manual/on-demand sync mode), every owned device is force-paused
+ * so re-applying never un-pauses it. Otherwise a manual pause (set in the native
+ * Syncthing app) is preserved from the remote config rather than reset to false.
+ * Foreign devices pass through untouched.
  */
 export function mergeDevices(
 	remote: SyncthingDevice[],
 	owned: SyncthingDevice[],
-	metered: boolean,
+	pauseOwned: boolean,
 ): SyncthingDevice[] {
 	const ownedIds = new Set(owned.map((d) => d.deviceID));
 	const remotePaused = new Map(remote.map((d) => [d.deviceID, d.paused ?? false]));
 	const ownedWithPaused = owned.map((d) => ({
 		...d,
-		paused: metered ? true : (remotePaused.get(d.deviceID) ?? false),
+		paused: pauseOwned ? true : (remotePaused.get(d.deviceID) ?? false),
 	}));
 	const foreign = remote.filter((d) => !ownedIds.has(d.deviceID));
 	return [...ownedWithPaused, ...foreign];
@@ -83,10 +83,11 @@ export async function apply(cfg: Config, injectedApi?: SyncthingApi): Promise<Ap
 	const devices = buildDevices(status.myID, cfg.machineName, cfg.peers);
 
 	const remote = await api.getConfig();
+	const pauseOwned = (cfg.metered ?? false) || cfg.syncMode === "manual";
 	const merged = {
 		...remote,
 		folders: mergeFolders(remote.folders, folders),
-		devices: mergeDevices(remote.devices, devices, cfg.metered ?? false),
+		devices: mergeDevices(remote.devices, devices, pauseOwned),
 	};
 	await api.putConfig(merged);
 

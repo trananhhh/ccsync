@@ -4,6 +4,7 @@ import {
 	pauseAllTransfers,
 	resumeAllTransfers,
 	setFolderPaused,
+	setOwnedDevicesPaused,
 } from "../../src/core/sync-control.js";
 import type { SyncthingApi, SyncthingConfig } from "../../src/core/syncthing-api.js";
 
@@ -34,6 +35,15 @@ describe("sync-control pure transforms", () => {
 	it("setFolderPaused toggles one folder", () => {
 		const out = setFolderPaused(baseConfig(), "ccsync-a", true);
 		expect(out.folders[0].paused).toBe(true);
+	});
+
+	it("setOwnedDevicesPaused touches only owned devices", () => {
+		const cfg = baseConfig();
+		cfg.devices.push({ deviceID: "FOREIGN", name: "other", addresses: [], paused: false });
+		const out = setOwnedDevicesPaused(cfg, new Set(["D1", "D2"]), true);
+		expect(out.devices.find((d) => d.deviceID === "D1")?.paused).toBe(true);
+		expect(out.devices.find((d) => d.deviceID === "D2")?.paused).toBe(true);
+		expect(out.devices.find((d) => d.deviceID === "FOREIGN")?.paused).toBe(false);
 	});
 });
 

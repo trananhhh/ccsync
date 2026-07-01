@@ -8,6 +8,22 @@ export function resumeAllTransfers(config: SyncthingConfig): SyncthingConfig {
 	return { ...config, devices: config.devices.map((d) => ({ ...d, paused: false })) };
 }
 
+/**
+ * Pause/resume only the devices we own (self + peers), leaving foreign devices
+ * untouched. Used by on-demand sync to lift the pause for one sync pass and by
+ * the mode switch to resume owned devices when leaving manual mode.
+ */
+export function setOwnedDevicesPaused(
+	config: SyncthingConfig,
+	ownedIds: Set<string>,
+	paused: boolean,
+): SyncthingConfig {
+	return {
+		...config,
+		devices: config.devices.map((d) => (ownedIds.has(d.deviceID) ? { ...d, paused } : d)),
+	};
+}
+
 export function setFolderPaused(
 	config: SyncthingConfig,
 	folderId: string,

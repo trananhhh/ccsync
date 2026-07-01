@@ -6,6 +6,7 @@ import { ConflictsPanel } from "@/components/ConflictsPanel";
 import { HandoffButton } from "@/components/HandoffButton";
 import { MeteredButton } from "@/components/MeteredButton";
 import { MachinesPanel } from "@/components/MachinesPanel";
+import { OnDemandControls } from "@/components/OnDemandControls";
 import { PendingMachines } from "@/components/PendingMachines";
 import { StatusBar } from "@/components/StatusBar";
 import { Button } from "@/components/ui/button";
@@ -105,6 +106,10 @@ export function Dashboard({ initial }: { initial: State }) {
 
 			<div className="mt-5 flex flex-wrap items-center gap-3">
 				<MeteredButton metered={metered} onToggle={onToggleMetered} />
+				<OnDemandControls
+					syncMode={cfg.syncMode ?? "realtime"}
+					onChanged={() => getState().then(setCfg).catch(() => {})}
+				/>
 				<ConflictsPanel count={conflicts} />
 				<HandoffButton folders={folders} />
 			</div>
